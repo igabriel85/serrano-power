@@ -9,13 +9,14 @@ Goals:
 import argparse
 import yaml
 import sys
+import time
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split, StratifiedKFold, KFold, StratifiedShuffleSplit
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
 from sklearn.metrics import balanced_accuracy_score, make_scorer, classification_report, accuracy_score, jaccard_score
-from sklearn.metrics import confusion_matrix
+from sklearn.metrics import confusion_matrix, f1_score
 from imblearn.metrics import classification_report_imbalanced
 from subprocess import check_output
 # from sklearn.externals import joblib
@@ -134,6 +135,176 @@ def load_data(index_col='time'):
     return df_anomaly, df_audsome, df_clean, df_clean_audsome
 
 
+def cv_exp(conf,
+           clf,
+           sss,
+           X,
+           y,
+           definitions,
+           model_dir,
+           exp_method_conf
+           ):
+    '''
+    Cross validation experiment
+    :param conf:  configuration file
+    :param clf: ML method instance
+    :param sss: Stratified shuffle split instance
+    :param X: input data (scaled)
+    :param y: ground truth
+    :param definitions:  class definitions
+    :param model_dir: model directory
+    :param exp_method_conf: ML method configuration
+    :return:
+    '''
+    for i in range(conf['iterations']):
+        print_verbose("Starting iteration {}".format(i))
+        report = {
+            "Accuracy": [],
+            "BallancedAccuracy": [],
+            "Jaccard": [],
+            "StartTrainingTime": [],
+            "EndTrainingTime": [],
+            "DurationTraining": [],
+            "StartTestingTime": [],
+            "EndTestingTime": [],
+            "DurationTesting": [],
+        }
+        fold = 1
+        for train_index, test_index in sss.split(X, y):
+            print_verbose("Starting fold {}".format(fold))
+            Xtrain, Xtest = X.iloc[train_index], X.iloc[test_index]
+            ytrain, ytest = y.iloc[train_index], y.iloc[test_index]
+
+            print_verbose("Start training ....")
+            start_time_train = time.time()
+            clf.fit(Xtrain, ytrain)
+            end_time_train = time.time()
+            train_time = end_time_train - start_time_train
+
+            report['StartTrainingTime'].append(start_time_train)
+            report['EndTrainingTime'].append(end_time_train)
+            report['DurationTraining'].append(train_time)
+
+            print_verbose("Predicting ....")
+            start_time_test = time.time()
+            ypred = clf.predict(Xtest)
+            end_time_test = time.time()
+            predict_time = end_time_test - start_time_test
+
+            report['StartTestingTime'].append(start_time_test)
+            report['EndTestingTime'].append(end_time_test)
+            report['DurationTesting'].append(predict_time)
+
+            # Accuracy score
+            acc = accuracy_score(ytest, ypred)
+            report['Accuracy'].append(acc)
+            print_verbose("Accuracy score fold {} is: {}".format(fold, acc))
+            bacc = balanced_accuracy_score(ytest, ypred)
+            report['BallancedAccuracy'].append(bacc)
+            print_verbose("Ballanced accuracy fold {} score is: {}".format(fold, bacc))
+            jaccard = jaccard_score(ytest, ypred, average='micro')
+            print_verbose("Jaccard score fold {}: {}".format(fold, jaccard))
+            report['Jaccard'].append(jaccard)
+
+            # Classification report
+            print_verbose("Full classification report for fold {}".format(fold))
+            print_verbose(classification_report(ytest, ypred, digits=4, target_names=definitions))
+
+            cf_report = classification_report(ytest, ypred, output_dict=True, digits=4, target_names=definitions)
+            df_classification_report = pd.DataFrame(cf_report).transpose()
+            print_verbose("Saving classification report")
+            classification_rep_name = "{}_classification_{}_iteration_{}_fold_{}.csv".format(exp_method_conf['method'],
+                                                                                             conf['experiment'], i,
+                                                                                             fold)
+            df_classification_report.to_csv(os.path.join(model_dir, classification_rep_name), index=False)
+
+            print_verbose("Imbalanced Classification report for fold {}".format(fold))
+            print_verbose(classification_report_imbalanced(ytest, ypred, digits=4, target_names=definitions))
+            imb_cf_report = classification_report_imbalanced(ytest, ypred, output_dict=True, digits=4,
+                                                             target_names=definitions)
+            df_imb_classification_report = pd.DataFrame(imb_cf_report).transpose()
+            print_verbose("Saving imbalanced classification report")
+            imb_classification_rep_name = "{}_imb_classification_{}_iteration_{}_fold_{}.csv".format(
+                exp_method_conf['method'],
+                conf['experiment'], i, fold)
+            df_imb_classification_report.to_csv(os.path.join(model_dir, imb_classification_rep_name), index=False)
+
+            # Confusion matrix
+            print_verbose("Generating confusion matrix fold {}".format(fold))
+            cf_matrix = confusion_matrix(ytest, ypred)
+            ht_cf = sns.heatmap(cf_matrix, annot=True, yticklabels=list(definitions), xticklabels=list(definitions))
+            plt.title('Confusion Matrix Iteration {} Fold {}'.format(i, fold), fontsize=15)  # title with fontsize 20
+            plt.xlabel('Ground Truth', fontsize=10)  # x-axis label with fontsize 15
+            plt.ylabel('Predictions', fontsize=10)  # y-axis label with fontsize 15
+            cf_fig = "CM_{}_{}_iteration_{}_fold_{}.png".format(exp_method_conf['method'], conf['experiment'], i, fold)
+            ht_cf.figure.savefig(os.path.join(model_dir, cf_fig), bbox_inches='tight')
+            plt.close()
+
+            # Feature importance
+            print_verbose("Extracting Feature improtance ...")
+            feat_importances = pd.Series(clf.feature_importances_, index=X.columns)
+            sorted_feature = feat_importances.sort_values(ascending=True)
+            # Limit number of sorted features
+            sorted_feature = sorted_feature.tail(20)
+            n_col = len(sorted_feature)
+
+            # Plot the feature importances of the forest
+            # plt.figure(figsize=(10,20), dpi=600) For publication only
+            plt.title("Feature importances Fold {}".format(fold), fontsize=15)
+            plt.barh(range(n_col), sorted_feature,
+                     color="r", align="center")
+            # If you want to define your own labels,
+            # change indices to a list of labels on the following line.
+            plt.yticks(range(n_col), sorted_feature.index)
+            plt.ylim([-1, n_col])
+            fi_fig = "FI_{}_{}_iteration_{}_fold_{}.png".format(exp_method_conf['method'], conf['experiment'], i, fold)
+            plt.savefig(os.path.join(model_dir, fi_fig), bbox_inches='tight')
+
+            # increment fold count
+            fold += 1
+        print_verbose("Saving final report ...")
+        # Validation Report
+        df_report = pd.DataFrame(report)
+        final_report = "Model_{}_{}_iteration_{}_report.csv".format(exp_method_conf['method'], conf['experiment'], i)
+        df_report.to_csv(os.path.join(model_dir, final_report), index=False)
+
+
+def learning_dataprop(dist,
+                      clf,
+                      X,
+                      y,
+                      model_dir,
+                      conf,
+                      exp_method_conf
+                      ):
+    """
+    Plot learning curve for different data sample proportion
+    :param dist: dataset proportion
+    :param clf: ML model
+    :param X: training data
+    :param y: ground truth
+    :param model_dir: model directory location
+    :param conf: experiment cong
+    :param exp_method_conf: experiment method conf
+    :return:
+    """
+    score_sets = []
+    for frac in dist:
+        X_subset = X.sample(frac=frac)
+        y_subset = y.sample(frac=frac)
+        clf.fit(X_subset, y_subset)
+        ypredict = clf.predict(X_subset)
+        f1_weighted_score = f1_score(y_subset, ypredict, average='weighted')
+        score_sets.append(f1_weighted_score)
+
+    # Plot learningcurve
+    plt.figure(dpi=600)
+    plt.grid()
+    plt.plot(dist, score_sets, marker='o')
+    plt.ylabel('F1')
+    plt.xlabel('Data Sample Fraction')
+    plt.savefig(os.path.join(model_dir, f"{exp_method_conf['method']}_{conf['experiment']}_learningcurve_datafraction.png"))
+    plt.show()
 def run(conf):
     exp_dir, model_dir = check_data_folders(conf)
     # Load data
@@ -212,7 +383,37 @@ def run(conf):
         clf = AdaBoostClassifier(**exp_method_conf['params'])
         print_verbose("Method chosen: {}".format(clf))
         print_verbose("Method params: {}".format(exp_method_conf['params']))
+    else:
+        sys.exit("unknown method: {}".format(exp_method_conf['method']))
 
+    print_verbose("Method chosen: {}".format(clf))
+    print_verbose("Method params: {}".format(clf.get_params().keys()))
+
+    # Cross validation
+    sss = StratifiedShuffleSplit(n_splits=conf['cross_validation'], test_size=conf['cross_validation_test'],
+                                 random_state=42)
+
+    # Experiment cv
+    cv_exp(conf=conf,
+           clf=clf,
+           sss=sss,
+           X=X,
+           y=y,
+           definitions=definitions,
+           model_dir=model_dir,
+           exp_method_conf=exp_method_conf)
+
+    if 'datafraction' in exp_method_conf.keys():
+        print_verbose(exp_method_conf['datafraction'])
+        dist = np.linspace(**exp_method_conf['datafraction'])
+        learning_dataprop(dist,
+                          clf,
+                          X,
+                          y,
+                          model_dir,
+                          conf,
+                          exp_method_conf
+                          )
 
 
 

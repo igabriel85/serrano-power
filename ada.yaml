@@ -32,3 +32,8 @@ validationcurve:
   - SAMME
   - SAMME.R
 rfe: 'True'
+datafraction:
+    start: 0.3
+    stop: 1.0
+    num: 10
+
