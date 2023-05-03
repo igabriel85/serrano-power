@@ -12,7 +12,6 @@ params:
   n_jobs: -1
   use_label_encoder: False
   num_class: 5
-learningcurve: np.linspace(0.3, 1.0, 10)
 validationcurve:
 - param_name: n_estimators
   param_range:

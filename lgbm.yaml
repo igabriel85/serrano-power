@@ -9,7 +9,6 @@ params:
   boosting_type: dart
   seed: 42
   objective: multiclass
-learningcurve: np.linspace(0.3, 1.0, 10)
 validationcurve:
 - param_name: n_estimators
   param_range:

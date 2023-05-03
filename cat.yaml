@@ -7,7 +7,6 @@ params:
   classes_count: 5
   loss_function: MultiClass
   verbose: 0
-learningcurve: np.linspace(0.3, 1.0, 10)
 validationcurve:
 - param_name: depth
   param_range:
