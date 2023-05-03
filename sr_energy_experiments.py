@@ -382,10 +382,11 @@ def learning_dataprop(dist,
 
 
 def rfe_ser(clf,
+            sss,
             X,
             y,
             model_dir,
-            conf,
+            exp_id,
             exp_method_conf,
             fi=None):
     df_iter = pd.DataFrame(index=X.index)
@@ -393,59 +394,151 @@ def rfe_ser(clf,
         fi = X.columns.values
     else:
         fi = fi
-    score_sets = []
-    start_train = []
-    end_train = []
-    train_time = []
-    start_predict = []
-    end_predict = []
-    predict_time = []
-    feature_num = []
+
     print_verbose("RFE Started, using {} ...".format(len(fi)))
+    rfe_start_time = time.time()
+    np_train_scores = np.empty((0, sss.n_splits))
+    np_test_scores = np.empty((0, sss.n_splits))
+    np_train_time = np.empty((0, sss.n_splits))
+    np_predict_test_time = np.empty((0, sss.n_splits))
+    np_predict_train_time = np.empty((0, sss.n_splits))
+    feature_num = []
     for col in fi:
         df_iter[col] = X[col]
-        start_time_train = time.time()
-        clf.fit(df_iter, y)
-        end_time_train = time.time()
-        start_train.append(start_time_train)
-        end_train.append(end_time_train)
-        print_verbose("Training time: {}".format(end_time_train - start_time_train))
-        train_time.append(end_time_train - start_time_train)
-        start_predict_time = time.time()
-        ypredict = clf.predict(df_iter)
-        end_predict_time = time.time()
-        start_predict.append(start_predict_time)
-        end_predict.append(end_predict_time)
-        print_verbose("Prediction time: {}".format(end_predict_time - start_predict_time))
-        predict_time.append(end_predict_time - start_predict_time)
-        f1_weighted_score = f1_score(y, ypredict, average='weighted')
-        score_sets.append(f1_weighted_score)
+        start_train = []
+        end_train = []
+        train_time = []
+        start_predict = []
+        end_predict = []
+        start_predict_train = []
+        end_predict_train = []
+        predict_time = []
+        predict_time_train = []
+
+        cv_scores_test = []
+        cv_scores_train = []
+        for train_index, test_index in sss.split(df_iter, y):
+            Xtrain, Xtest = df_iter.iloc[train_index], df_iter.iloc[test_index]
+            ytrain, ytest = y.iloc[train_index], y.iloc[test_index]
+            start_time_train = time.time()
+            clf.fit(Xtrain, ytrain)
+            end_time_train = time.time()
+            start_train.append(start_time_train)
+            end_train.append(end_time_train)
+            print_verbose("Training time: {}".format(end_time_train - start_time_train))
+            train_time.append(end_time_train - start_time_train)
+            start_predict_time_train = time.time()
+            ypredict_train = clf.predict(Xtrain)
+            end_predict_time_train = time.time()
+            start_predict_train.append(start_predict_time_train)
+            end_predict_train.append(end_predict_time_train)
+            print_verbose("Prediction time train : {}".format(end_predict_time_train - start_predict_time_train))
+            predict_time_train.append(end_predict_time_train - start_predict_time_train)
+
+            start_predict_time = time.time()
+            ypredict_test = clf.predict(Xtest)
+            end_predict_time = time.time()
+            print_verbose("Prediction time: {}".format(end_predict_time - start_predict_time))
+
+            start_predict.append(start_predict_time)
+            end_predict.append(end_predict_time)
+
+            predict_time.append(end_predict_time - start_predict_time)
+            f1_weighted_score_train = f1_score(ytrain, ypredict_train, average='weighted')
+            f1_weighted_score_test = f1_score(ytest, ypredict_test, average='weighted')
+            cv_scores_test.append(f1_weighted_score_test)
+            cv_scores_train.append(f1_weighted_score_train)
         feature_num.append(len(df_iter.columns.values))
+        np_train_scores = np.append(np_train_scores, [cv_scores_train], axis=0)
+        np_test_scores = np.append(np_test_scores, [cv_scores_test], axis=0)
+        np_train_time = np.append(np_train_time, [train_time], axis=0)
+        np_predict_train_time = np.append(np_predict_train_time, [predict_time_train], axis=0)
+        np_predict_test_time = np.append(np_predict_test_time, [predict_time], axis=0)
 
-    report_dct ={
-        'start_train': start_train,
-        'end_train': end_train,
-        'train_time': train_time,
-        'predict_time': predict_time,
-        'start_predict': start_predict,
-        'end_predict': end_predict,
-        'score': score_sets,
-        'feature_num': feature_num
+    rfe_stop_time = time.time()
+    # Compute for fill_between plot
+    np_train_scores_mean = np.mean(np_train_scores, axis=1)
+    np_train_scores_std = np.std(np_train_scores, axis=1)
+    np_test_scores_mean = np.mean(np_test_scores, axis=1)
+    np_test_scores_std = np.std(np_test_scores, axis=1)
+
+    # Aditional data
+    np_train_time_mean = np.mean(np_train_time, axis=1)
+    np_train_time_std = np.std(np_train_time, axis=1)
+    np_predict_train_time_mean = np.mean(np_predict_train_time, axis=1)
+    np_predict_train_time_std = np.std(np_predict_train_time, axis=1)
+    np_predict_test_time_mean = np.mean(np_predict_test_time, axis=1)
+    np_predict_test_time_std = np.std(np_predict_test_time, axis=1)
+
+    report_times = {
+        'train_time': np_train_time_mean,
+        'train_time_std': np_train_time_std,
+        'predict_train_time': np_predict_train_time_mean,
+        'predict_train_time_std': np_predict_train_time_std,
+        'predict_test_time': np_predict_test_time_mean,
+        'predict_test_time_std': np_predict_test_time_std,
     }
-    df_report = pd.DataFrame(report_dct)
-    df_report.to_csv(os.path.join(model_dir,
-                                  f"{exp_method_conf['method']}_{conf['experiment']}_rfe.csv"),
-                     index=False)
 
-    # Plot learningcurve
+    df_report_times = pd.DataFrame(report_times)
+    df_report_times.to_csv(os.path.join(model_dir, f"{exp_method_conf['method']}_{exp_id}_cv_times_rfe.csv"), index=False)
+
+    # Plot
     plt.figure(dpi=600)
     plt.grid()
-    plt.plot(feature_num, score_sets, marker='o')
-    plt.ylabel('F1')
-    plt.xlabel('Features')
-    plt.savefig(
-        os.path.join(model_dir, f"{exp_method_conf['method']}_{conf['experiment']}_rfe.png"))
-    plt.show()
+    ft_num = [*range(1, len(feature_num), 1)]
+
+    plt.fill_between(ft_num, np_train_scores_mean - np_train_scores_std,
+                     np_train_scores_mean + np_train_scores_std, alpha=0.1,
+                     color="c")
+    plt.fill_between(ft_num, np_test_scores_mean - np_test_scores_std,
+                     np_test_scores_mean + np_test_scores_std, alpha=0.1, color="g")
+    plt.plot(ft_num, np_train_scores_mean, 'o-', color="c",
+             label="Training score")
+    plt.plot(ft_num, np_test_scores_mean, 'o-', color="g",
+             label="Cross-validation score")
+
+    # Labels and legends
+    plt.xticks(ticks=ft_num, labels=ft_num)
+    plt.ylabel("F1 Score")
+    plt.xlabel("Number of Features")
+    # plt.legend(loc='upper right')
+    plt.legend(loc="best")
+    plt.savefig(os.path.join(model_dir, f"{exp_method_conf['method']}_{exp_id}_rfe.png"))
+
+    report_rfe = {
+        'rfe_start_time': rfe_start_time,
+        'rfe_stop_time': rfe_stop_time,
+        'rfe_total_time': rfe_stop_time - rfe_start_time,
+    }
+
+    df_rfe_report = pd.DataFrame(report_rfe, index=[0])
+    df_rfe_report.to_csv(os.path.join(model_dir, f"{exp_method_conf['method']}_{exp_id}_times_rfe.csv"), index=False)
+
+        # report_dct ={
+        #     'start_train': start_train,
+        #     'end_train': end_train,
+        #     'train_time': train_time,
+        #     'predict_time': predict_time,
+        #     'start_predict': start_predict,
+        #     'end_predict': end_predict,
+        #     'score': score_sets,
+        #     'feature_num': feature_num
+        # }
+
+    # df_report = pd.DataFrame(report_dct)
+    # df_report.to_csv(os.path.join(model_dir,
+    #                               f"{exp_method_conf['method']}_{conf['experiment']}_rfe.csv"),
+    #                  index=False)
+    #
+    # # Plot learningcurve
+    # plt.figure(dpi=600)
+    # plt.grid()
+    # plt.plot(feature_num, score_sets, marker='o')
+    # plt.ylabel('F1')
+    # plt.xlabel('Features')
+    # plt.savefig(
+    #     os.path.join(model_dir, f"{exp_method_conf['method']}_{conf['experiment']}_rfe.png"))
+    # plt.show()
 
 
 def validation_curve(X,
@@ -494,10 +587,7 @@ def validation_curve(X,
         org_params = exp_method_conf['params']
         for param in param_range:
             params = org_params.copy()
-            print(params)
-            print(param)
             params.update(param)
-            print(params)
             print_verbose(f"Starting params: {params}")
             cv_scores_train = []
             cv_scores_test = []
@@ -677,7 +767,6 @@ def run(conf):
     sss = StratifiedShuffleSplit(n_splits=conf['cross_validation'], test_size=conf['cross_validation_test'],
                                  random_state=42)
 
-
     # Experiment cv
     cv_exp(conf=conf,
            clf=clf,
@@ -712,9 +801,9 @@ def run(conf):
     if 'rfe' in exp_method_conf.keys():
         print_verbose(exp_method_conf['rfe'])
         if isinstance(exp_method_conf['rfe'], list):
-            rfe_ser(clf, X, y, model_dir, conf, exp_method_conf, fi=exp_method_conf['rfe'])
+            rfe_ser(clf, X, y, model_dir, conf['experiment'], exp_method_conf, fi=exp_method_conf['rfe'])
         else:
-            rfe_ser(clf, X, y, model_dir, conf, exp_method_conf)
+            rfe_ser(clf, sss, X, y, model_dir, conf['experiment'], exp_method_conf)
 
     print_verbose("Execution finished ...")
 
