@@ -134,6 +134,21 @@ def load_data(index_col='time'):
     # print("Shape after drop: {}".format(data.shape))
     return df_anomaly, df_audsome, df_clean, df_clean_audsome
 
+def select_method(exp_method_conf, params=None):
+    if 'AdaBoostClassifier' in exp_method_conf['method']:
+        if params is None:
+            clf = AdaBoostClassifier(**exp_method_conf['params'])
+        else:
+            clf = AdaBoostClassifier(**params)
+        print_verbose("Method chosen: {}".format(clf))
+        print_verbose("Method params: {}".format(exp_method_conf['params']))
+    else:
+        sys.exit("unknown method: {}".format(exp_method_conf['method']))
+
+    print_verbose("Method chosen: {}".format(clf))
+    print_verbose("Method params: {}".format(clf.get_params().keys()))
+    return clf
+
 
 def cv_exp(conf,
            clf,
@@ -289,13 +304,49 @@ def learning_dataprop(dist,
     :return:
     """
     score_sets = []
+    start_train = []
+    end_train = []
+    train_time = []
+    start_predict = []
+    end_predict = []
+    predict_time = []
+    data_frac = []
     for frac in dist:
         X_subset = X.sample(frac=frac)
         y_subset = y.sample(frac=frac)
+        data_frac.append(frac)
+        start_time_train = time.time()
         clf.fit(X_subset, y_subset)
+        end_time_train = time.time()
+        start_train.append(start_time_train)
+        end_train.append(end_time_train)
+        print_verbose("Training time: {}".format(end_time_train - start_time_train))
+        train_time.append(end_time_train - start_time_train)
+        start_predict_time = time.time()
         ypredict = clf.predict(X_subset)
+        end_predict_time = time.time()
+        start_predict.append(start_predict_time)
+        end_predict.append(end_predict_time)
+        print_verbose("Prediction time: {}".format(end_predict_time - start_predict_time))
+        predict_time.append(end_predict_time - start_predict_time)
         f1_weighted_score = f1_score(y_subset, ypredict, average='weighted')
         score_sets.append(f1_weighted_score)
+
+    report_dct = {
+        'start_train': start_train,
+        'end_train': end_train,
+        'train_time': train_time,
+        'predict_time': predict_time,
+        'start_predict': start_predict,
+        'end_predict': end_predict,
+        'score': score_sets,
+        'data_fraction': data_frac
+    }
+    df_report = pd.DataFrame(report_dct)
+    df_report.to_csv(os.path.join(model_dir,
+                                  f"{exp_method_conf['method']}_{conf['experiment']}_learningcurve_datafraction.csv"),
+                     index=False)
+
 
     # Plot learningcurve
     plt.figure(dpi=600)
@@ -305,6 +356,141 @@ def learning_dataprop(dist,
     plt.xlabel('Data Sample Fraction')
     plt.savefig(os.path.join(model_dir, f"{exp_method_conf['method']}_{conf['experiment']}_learningcurve_datafraction.png"))
     plt.show()
+
+def validation_curve(X,
+                     y,
+                     sss,
+                     exp_method_conf,
+                     model_dir,
+                     exp_id):
+    """
+        :param X: Dataset for training
+        :param y: Ground Truth of training data
+        :param sss: cv instance
+        :param exp_method_conf: method configuration for parameters
+        :param model_dir: models directory
+        :param cv: experiment unique id
+
+        :return:
+        """
+    # Read original params
+    method_name = exp_method_conf['method']
+
+    for i, clf_param in enumerate(exp_method_conf['validationcurve']):
+        np_train_scores = np.empty((0, sss.n_splits))
+        np_test_scores = np.empty((0, sss.n_splits))
+
+
+        # Generate param range
+        param_name = clf_param['param_name']
+        print_verbose('Computing Validation Curve for {} Parameter name: {}'.format(method_name, param_name))
+        param_range_values = clf_param['param_range']
+        param_range = []
+        for param in param_range_values:
+            param_range.append({param_name: param})
+
+        # Get param name and values
+        param_values = []
+        param_name = list(param_range[0].keys())[0]
+        for d in param_range:
+            param_values.append(list(d.values())[0])
+        param_labels = param_values
+
+        # Check if param values have string type
+        if any(isinstance(item, str) for item in param_values):
+            len_param_values = len(param_values)
+            param_values = list(range(0, len_param_values))
+        org_params = exp_method_conf['params']
+        for param in param_range:
+            params = org_params.copy()
+            print(params)
+            print(param)
+            params.update(param)
+            print(params)
+            print_verbose(f"Starting params: {params}")
+            cv_scores_train = []
+            cv_scores_test = []
+            start_train = []
+            start_predict = []
+            end_train = []
+            end_predict = []
+            train_time = []
+            predict_time = []
+            fold = 1
+            for train_index, test_index in sss.split(X, y):
+                Xtrain, Xtest = X.iloc[train_index], X.iloc[test_index]
+                ytrain, ytest = y.iloc[train_index], y.iloc[test_index]
+                clf_param = select_method(exp_method_conf, params)
+                start_train_time = time.time()
+                clf_param.fit(Xtrain, ytrain)
+                end_train_time = time.time()
+
+                print_verbose("Training time: {}".format(end_train_time - start_train_time))
+                start_train.append(start_train_time)
+                end_train.append(end_train_time)
+                train_time.append(end_train_time - start_train_time)
+
+                start_predict_time = time.time()
+                ypred = clf_param.predict(Xtrain)
+                end_train_time = time.time()
+
+                print_verbose("Prediction time: {}".format(end_train_time - start_predict_time))
+                start_predict.append(start_predict_time)
+                end_predict.append(end_train_time)
+                predict_time.append(end_train_time - start_predict_time)
+
+
+                f1_weighted_score_train = f1_score(ytrain, ypred, average='weighted')
+
+                ypredict_test = clf_param.predict(Xtest)
+                f1_weighted_score_test = f1_score(ytest, ypredict_test, average='weighted')
+
+                cv_scores_test.append(f1_weighted_score_test)
+                cv_scores_train.append(f1_weighted_score_train)
+                fold += 1
+            report = {
+                'start_train': start_train,
+                'end_train': end_train,
+                'train_time': train_time,
+                'start_predict': start_predict,
+                'end_predict': end_predict,
+                'predict_time': predict_time,
+                'f1_wighted_train': cv_scores_train,
+                'f1_wighted_test': cv_scores_test,
+            }
+            df_report = pd.DataFrame(report)
+            df_report.to_csv(os.path.join(model_dir,
+                                          f"{method_name}_{exp_id}_validationcurve_{param_name}_{param}.csv"),
+                             index=False)
+            np_train_scores = np.append(np_train_scores, [cv_scores_train], axis=0)
+            np_test_scores = np.append(np_test_scores, [cv_scores_test], axis=0)
+
+        # Compute for fill_between plot
+        np_train_scores_mean = np.mean(np_train_scores, axis=1)
+        np_train_scores_std = np.std(np_train_scores, axis=1)
+        np_test_scores_mean = np.mean(np_test_scores, axis=1)
+        np_test_scores_std = np.std(np_test_scores, axis=1)
+
+        # Plot
+        plt.figure(dpi=600)
+        plt.grid()
+        plt.fill_between(param_values, np_train_scores_mean - np_train_scores_std,
+                         np_train_scores_mean + np_train_scores_std, alpha=0.1,
+                         color="c")
+        plt.fill_between(param_values, np_test_scores_mean - np_test_scores_std,
+                         np_test_scores_mean + np_test_scores_std, alpha=0.1, color="g")
+        plt.plot(param_values, np_train_scores_mean, 'o-', color="c",
+                 label="Training score")
+        plt.plot(param_values, np_test_scores_mean, 'o-', color="g",
+                 label="Cross-validation score")
+
+        # Labels and legends
+        plt.xticks(ticks=param_values, labels=param_labels)
+        plt.ylabel("F1 Score")
+        plt.xlabel(param_name)
+        # plt.legend(loc='upper right')
+        plt.legend(loc="best")
+        plt.savefig(os.path.join(model_dir, f"{method_name}_{exp_id}_validationcurve_{param_name}.png"))
 def run(conf):
     exp_dir, model_dir = check_data_folders(conf)
     # Load data
@@ -379,15 +565,16 @@ def run(conf):
         exp_method_conf = yaml.load(cfile, Loader=yaml.UnsafeLoader)
     # exp_method_conf = yaml.load(conf['file'], Loader=yaml.UnsafeLoader)
     print_verbose(exp_method_conf.keys())
-    if 'AdaBoostClassifier' in exp_method_conf['method']:
-        clf = AdaBoostClassifier(**exp_method_conf['params'])
-        print_verbose("Method chosen: {}".format(clf))
-        print_verbose("Method params: {}".format(exp_method_conf['params']))
-    else:
-        sys.exit("unknown method: {}".format(exp_method_conf['method']))
-
-    print_verbose("Method chosen: {}".format(clf))
-    print_verbose("Method params: {}".format(clf.get_params().keys()))
+    clf = select_method(exp_method_conf)
+    # if 'AdaBoostClassifier' in exp_method_conf['method']:
+    #     clf = AdaBoostClassifier(**exp_method_conf['params'])
+    #     print_verbose("Method chosen: {}".format(clf))
+    #     print_verbose("Method params: {}".format(exp_method_conf['params']))
+    # else:
+    #     sys.exit("unknown method: {}".format(exp_method_conf['method']))
+    #
+    # print_verbose("Method chosen: {}".format(clf))
+    # print_verbose("Method params: {}".format(clf.get_params().keys()))
 
     # Cross validation
     sss = StratifiedShuffleSplit(n_splits=conf['cross_validation'], test_size=conf['cross_validation_test'],
@@ -415,6 +602,14 @@ def run(conf):
                           exp_method_conf
                           )
 
+    if 'validationcurve' in exp_method_conf.keys():
+        print_verbose(exp_method_conf['validationcurve'])
+        validation_curve(X,
+                         y,
+                         sss,
+                         exp_method_conf,
+                         model_dir,
+                         conf['experiment'])
 
 
 if __name__ == "__main__":
@@ -431,8 +626,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     config = vars(args)
-    print("Configuration:")
-    for (k, v) in config.items():
-        print("{}: {}".format(k, v))
-    print(config)
+    # print("Configuration:")
+    # for (k, v) in config.items():
+    #     print("{}: {}".format(k, v))
     run(config)

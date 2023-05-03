@@ -5,10 +5,6 @@ params:
   learning_rate: 0.1
   algorithm: SAMME
   random_state: 42
-# cv:
-#   n_splits: 5
-#   test_size: 0.2
-#   random_state: 42
 learningcurve: np.linspace(0.3, 1.0, 10)
 validationcurve:
 - param_name: n_estimators
@@ -16,10 +12,10 @@ validationcurve:
   - 10
   - 60
   - 100
-  - 200
-  - 600
-  - 1000
-  - 2000
+ - 200
+ - 600
+ - 1000
+ - 2000
 - param_name: learning_rate
   param_range:
   - 0.1
