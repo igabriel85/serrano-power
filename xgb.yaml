@@ -1,0 +1,74 @@
+---
+method: XGBoost
+params:
+  n_estimators: 10
+  max_depth: 25
+  learning_rate: 0.15
+  subsample: 1.0
+  min_child_weight: 1
+  gamma: 1
+  seed: 42
+  objective: multi:softmax
+  n_jobs: -1
+  use_label_encoder: False
+  num_class: 5
+learningcurve: np.linspace(0.3, 1.0, 10)
+validationcurve:
+- param_name: n_estimators
+  param_range:
+  - 10
+  - 60
+  - 100
+  - 200
+  - 600
+  - 1000
+  - 2000
+- param_name: max_depth
+  param_range:
+  - 1
+  - 2
+  - 5
+  - 10
+  - 15
+  - 20
+  - 25
+  - 30
+- param_name: learning_rate
+  param_range:
+  - 0.001
+  - 0.01
+  - 0.1
+  - 0.2
+  - 0.3
+  - 0.5
+  - 0.7
+  - 0.8
+  - 0.9
+- param_name: subsample
+  param_range:
+  - 0.1
+  - 0.2
+  - 0.3
+  - 0.5
+  - 0.7
+  - 1.0
+- param_name: min_child_weight
+  param_range:
+  - 1
+  - 2
+  - 3
+  - 5
+  - 7
+  - 10
+- param_name: gamma
+  param_range:
+  - 0.1
+  - 0.5
+  - 0.7
+  - 1.0
+rfe: 'True'
+datafraction:
+    start: 0.3
+    stop: 1.0
+    num: 10
+

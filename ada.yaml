@@ -12,10 +12,10 @@ validationcurve:
   - 10
   - 60
   - 100
- - 200
- - 600
- - 1000
- - 2000
+  - 200
+  - 600
+  - 1000
+  - 2000
 - param_name: learning_rate
   param_range:
   - 0.1

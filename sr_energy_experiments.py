@@ -5,12 +5,16 @@ Goals:
     - Run predictive models and measure energy consumption with different
     - Run predicitive models on different datasets and measure energy consumption
 """
-
+import os
+# limit GPU allocation
+os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID" #issue #152
+os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 import argparse
 import yaml
 import sys
 import time
 import numpy as np
+np.random.seed(42)
 import pandas as pd
 from sklearn.model_selection import train_test_split, StratifiedKFold, KFold, StratifiedShuffleSplit
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
@@ -18,10 +22,11 @@ from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
 from sklearn.metrics import balanced_accuracy_score, make_scorer, classification_report, accuracy_score, jaccard_score
 from sklearn.metrics import confusion_matrix, f1_score
 from imblearn.metrics import classification_report_imbalanced
+import xgboost as xgb
+import lightgbm as lgm
 from subprocess import check_output
 # from sklearn.externals import joblib
 from joblib import dump, load
-import os
 import matplotlib.pyplot as plt
 import seaborn as sns
 import shap
@@ -142,6 +147,24 @@ def select_method(exp_method_conf, params=None):
             clf = AdaBoostClassifier(**params)
         print_verbose("Method chosen: {}".format(clf))
         print_verbose("Method params: {}".format(exp_method_conf['params']))
+    elif 'RandomForestClassifier' in exp_method_conf['method']:
+        if params is None:
+            clf = RandomForestClassifier(**exp_method_conf['params'])
+        else:
+            clf = RandomForestClassifier(**params)
+
+    elif 'XGBoost' in exp_method_conf['method']:
+        if params is None:
+            clf = xgb.XGBClassifier(**exp_method_conf['params'])
+        else:
+            clf = xgb.XGBClassifier(**params)
+
+    elif 'LightGBM' in exp_method_conf['method']:
+        if params is None:
+            clf = lgm.sklearn.LGBMClassifier(**exp_method_conf['params'])
+        else:
+            clf = lgm.sklearn.LGBMClassifier(**params)
+
     else:
         sys.exit("unknown method: {}".format(exp_method_conf['method']))
 
@@ -566,6 +589,12 @@ def run(conf):
     # exp_method_conf = yaml.load(conf['file'], Loader=yaml.UnsafeLoader)
     print_verbose(exp_method_conf.keys())
     clf = select_method(exp_method_conf)
+
+    #Fix lightgbm.basic.LightGBMError: Do not support special JSON characters in feature name.
+
+    if 'LightGBM' in exp_method_conf['method']:
+        import re
+        X = X.rename(columns=lambda x: re.sub('[^A-Za-z0-9_]+', '', x))
     # if 'AdaBoostClassifier' in exp_method_conf['method']:
     #     clf = AdaBoostClassifier(**exp_method_conf['params'])
     #     print_verbose("Method chosen: {}".format(clf))
@@ -610,18 +639,19 @@ def run(conf):
                          exp_method_conf,
                          model_dir,
                          conf['experiment'])
+    print_verbose("Execution finished ...")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Serrano Energy consumption experiments",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("-f", "--file", default='ada.yaml', type=str, help="configuration file")
+    parser.add_argument("-f", "--file", default='lgbm.yaml', type=str, help="configuration file")
     parser.add_argument("-d", "--dataset", type=str, default='anomaly', help="choose dataset, can be one of: anomaly, "
                                                                              "audsome, clean, clean_audsome")
     parser.add_argument("-i", "--iterations", type=int, default=1, help="number of iterations")
     parser.add_argument("-cv", "--cross_validation", type=int, default=5, help="number of splits used for cv")
     parser.add_argument("-cvt", "--cross_validation_test", type=float, default=0.2, help="percent of test set")
-    parser.add_argument("-e", "--experiment", type=str, default='exp_1', help="experiment unique identifier")
+    parser.add_argument("-e", "--experiment", type=str, default='exp_4', help="experiment unique identifier")
     parser.add_argument("-v", "--verbose", action='store_true', help="verbosity")
 
     args = parser.parse_args()
