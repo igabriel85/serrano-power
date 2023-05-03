@@ -24,6 +24,7 @@ from sklearn.metrics import confusion_matrix, f1_score
 from imblearn.metrics import classification_report_imbalanced
 import xgboost as xgb
 import lightgbm as lgm
+from catboost import CatBoostClassifier
 from subprocess import check_output
 # from sklearn.externals import joblib
 from joblib import dump, load
@@ -57,23 +58,23 @@ def custom_scoring_reporting(y_pred,
     :param prefix: prefix to saved files and images
     :return: 0
     """
-    print("Accuracy score is: {}".format(accuracy_score(y, y_pred)))
-    print("Ballanced accuracy score is: {}".format(balanced_accuracy_score(y, y_pred)))
-    print("Jaccard score (micro): {}".format(jaccard_score(y, y_pred, average='micro')))
-    print("Jaccard score (macro): {}".format(jaccard_score(y, y_pred, average='macro')))
-    print("Jaccard score (weighted): {}".format(jaccard_score(y, y_pred, average='weighted')))
+    print_verbose("Accuracy score is: {}".format(accuracy_score(y, y_pred)))
+    print_verbose("Ballanced accuracy score is: {}".format(balanced_accuracy_score(y, y_pred)))
+    print_verbose("Jaccard score (micro): {}".format(jaccard_score(y, y_pred, average='micro')))
+    print_verbose("Jaccard score (macro): {}".format(jaccard_score(y, y_pred, average='macro')))
+    print_verbose("Jaccard score (weighted): {}".format(jaccard_score(y, y_pred, average='weighted')))
 
 
-    print("Full classification report")
-    print(classification_report(y, y_pred, target_names=definitions))
+    print_verbose("Full classification report")
+    print_verbose(classification_report(y, y_pred, target_names=definitions))
     report = classification_report(y, y_pred, output_dict=True)
     df_classification_report = pd.DataFrame(report).transpose()
     classification_rep_name = "{}_classification_rep_best.csv".format(prefix)
     df_classification_report.to_csv(os.path.join(model_dir,classification_rep_name), index=False)
 
 
-    print("Imbalanced Classification report")
-    print(classification_report_imbalanced(y, y_pred, target_names=definitions))
+    print_verbose("Imbalanced Classification report")
+    print_verbose(classification_report_imbalanced(y, y_pred, target_names=definitions))
     imb_report = classification_report_imbalanced(y, y_pred, target_names=definitions, output_dict=True)
     df_imb_classification_report = pd.DataFrame(imb_report).transpose()
     classification_imb_rep_name = "{}_imb_classification_rep_best.csv".format(prefix)
@@ -130,10 +131,10 @@ def load_data(index_col='time'):
     # Dirty fix for df_clean_audsome
     df_clean_audsome.drop(['target_cpu_master',
                            'target_mem_master', 'target_copy_master', 'target_ddot_master'], axis=1, inplace=True)
-    print("Dataset chosen ...")
+    custom_scoring_reporting("Dataset chosen ...")
     data = df_anomaly
     # drop_col = ['t1','t2','t3','t4']
-    print("Remove unwanted columns ...")
+    custom_scoring_reporting("Remove unwanted columns ...")
     # print("Shape before drop: {}".format(data.shape))
     # data.drop(drop_col, axis=1, inplace=True)
     # print("Shape after drop: {}".format(data.shape))
@@ -164,6 +165,12 @@ def select_method(exp_method_conf, params=None):
             clf = lgm.sklearn.LGBMClassifier(**exp_method_conf['params'])
         else:
             clf = lgm.sklearn.LGBMClassifier(**params)
+
+    elif 'CatBoost' in exp_method_conf['method']:
+        if params is None:
+            clf = CatBoostClassifier(**exp_method_conf['params'])
+        else:
+            clf = CatBoostClassifier(**params)
 
     else:
         sys.exit("unknown method: {}".format(exp_method_conf['method']))
@@ -485,7 +492,7 @@ def rfe_ser(clf,
     # Plot
     plt.figure(dpi=600)
     plt.grid()
-    ft_num = [*range(1, len(feature_num), 1)]
+    ft_num = [*range(1, len(feature_num)+1, 1)]
 
     plt.fill_between(ft_num, np_train_scores_mean - np_train_scores_std,
                      np_train_scores_mean + np_train_scores_std, alpha=0.1,
@@ -498,7 +505,7 @@ def rfe_ser(clf,
              label="Cross-validation score")
 
     # Labels and legends
-    plt.xticks(ticks=ft_num, labels=ft_num)
+    plt.xticks(ticks=ft_num, labels=ft_num, fontsize=14)
     plt.ylabel("F1 Score")
     plt.xlabel("Number of Features")
     # plt.legend(loc='upper right')
@@ -811,13 +818,13 @@ def run(conf):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Serrano Energy consumption experiments",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("-f", "--file", default='ada.yaml', type=str, help="configuration file")
+    parser.add_argument("-f", "--file", default='cat.yaml', type=str, help="configuration file")
     parser.add_argument("-d", "--dataset", type=str, default='anomaly', help="choose dataset, can be one of: anomaly, "
                                                                              "audsome, clean, clean_audsome")
     parser.add_argument("-i", "--iterations", type=int, default=1, help="number of iterations")
     parser.add_argument("-cv", "--cross_validation", type=int, default=5, help="number of splits used for cv")
     parser.add_argument("-cvt", "--cross_validation_test", type=float, default=0.2, help="percent of test set")
-    parser.add_argument("-e", "--experiment", type=str, default='exp_5', help="experiment unique identifier")
+    parser.add_argument("-e", "--experiment", type=str, default='exp_6', help="experiment unique identifier")
     parser.add_argument("-v", "--verbose", action='store_true', help="verbosity")
 
     args = parser.parse_args()

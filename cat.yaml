@@ -1,0 +1,48 @@
+---
+method: CatBoost
+params:
+  depth: 6
+  iterations: 1000
+  learning_rate: 0.2
+  classes_count: 5
+  loss_function: MultiClass
+  verbose: 0
+learningcurve: np.linspace(0.3, 1.0, 10)
+validationcurve:
+- param_name: depth
+  param_range:
+  - 3
+  - 6
+  - 10
+  - 15
+  - 25
+  - 50
+  - 100
+- param_name: iterations
+  param_range:
+  - 10
+  - 20
+  - 50
+  - 100
+  - 150
+  - 200
+  - 400
+  - 700
+  - 1000
+  - 2000
+- param_name: learning_rate
+  param_range:
+  - 0.001
+  - 0.01
+  - 0.1
+  - 0.5
+  - 0.7
+  - 0.8
+  - 0.9
+  - 1.0
+rfe: 'True'
+datafraction:
+    start: 0.3
+    stop: 1.0
+    num: 10
+
