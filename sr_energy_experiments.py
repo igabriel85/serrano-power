@@ -380,6 +380,74 @@ def learning_dataprop(dist,
     plt.savefig(os.path.join(model_dir, f"{exp_method_conf['method']}_{conf['experiment']}_learningcurve_datafraction.png"))
     plt.show()
 
+
+def rfe_ser(clf,
+            X,
+            y,
+            model_dir,
+            conf,
+            exp_method_conf,
+            fi=None):
+    df_iter = pd.DataFrame(index=X.index)
+    if fi is None:
+        fi = X.columns.values
+    else:
+        fi = fi
+    score_sets = []
+    start_train = []
+    end_train = []
+    train_time = []
+    start_predict = []
+    end_predict = []
+    predict_time = []
+    feature_num = []
+    print_verbose("RFE Started, using {} ...".format(len(fi)))
+    for col in fi:
+        df_iter[col] = X[col]
+        start_time_train = time.time()
+        clf.fit(df_iter, y)
+        end_time_train = time.time()
+        start_train.append(start_time_train)
+        end_train.append(end_time_train)
+        print_verbose("Training time: {}".format(end_time_train - start_time_train))
+        train_time.append(end_time_train - start_time_train)
+        start_predict_time = time.time()
+        ypredict = clf.predict(df_iter)
+        end_predict_time = time.time()
+        start_predict.append(start_predict_time)
+        end_predict.append(end_predict_time)
+        print_verbose("Prediction time: {}".format(end_predict_time - start_predict_time))
+        predict_time.append(end_predict_time - start_predict_time)
+        f1_weighted_score = f1_score(y, ypredict, average='weighted')
+        score_sets.append(f1_weighted_score)
+        feature_num.append(len(df_iter.columns.values))
+
+    report_dct ={
+        'start_train': start_train,
+        'end_train': end_train,
+        'train_time': train_time,
+        'predict_time': predict_time,
+        'start_predict': start_predict,
+        'end_predict': end_predict,
+        'score': score_sets,
+        'feature_num': feature_num
+    }
+    df_report = pd.DataFrame(report_dct)
+    df_report.to_csv(os.path.join(model_dir,
+                                  f"{exp_method_conf['method']}_{conf['experiment']}_rfe.csv"),
+                     index=False)
+
+    # Plot learningcurve
+    plt.figure(dpi=600)
+    plt.grid()
+    plt.plot(feature_num, score_sets, marker='o')
+    plt.ylabel('F1')
+    plt.xlabel('Features')
+    plt.savefig(
+        os.path.join(model_dir, f"{exp_method_conf['method']}_{conf['experiment']}_rfe.png"))
+    plt.show()
+
+
 def validation_curve(X,
                      y,
                      sss,
@@ -609,6 +677,7 @@ def run(conf):
     sss = StratifiedShuffleSplit(n_splits=conf['cross_validation'], test_size=conf['cross_validation_test'],
                                  random_state=42)
 
+
     # Experiment cv
     cv_exp(conf=conf,
            clf=clf,
@@ -639,19 +708,27 @@ def run(conf):
                          exp_method_conf,
                          model_dir,
                          conf['experiment'])
+
+    if 'rfe' in exp_method_conf.keys():
+        print_verbose(exp_method_conf['rfe'])
+        if isinstance(exp_method_conf['rfe'], list):
+            rfe_ser(clf, X, y, model_dir, conf, exp_method_conf, fi=exp_method_conf['rfe'])
+        else:
+            rfe_ser(clf, X, y, model_dir, conf, exp_method_conf)
+
     print_verbose("Execution finished ...")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Serrano Energy consumption experiments",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("-f", "--file", default='lgbm.yaml', type=str, help="configuration file")
+    parser.add_argument("-f", "--file", default='ada.yaml', type=str, help="configuration file")
     parser.add_argument("-d", "--dataset", type=str, default='anomaly', help="choose dataset, can be one of: anomaly, "
                                                                              "audsome, clean, clean_audsome")
     parser.add_argument("-i", "--iterations", type=int, default=1, help="number of iterations")
     parser.add_argument("-cv", "--cross_validation", type=int, default=5, help="number of splits used for cv")
     parser.add_argument("-cvt", "--cross_validation_test", type=float, default=0.2, help="percent of test set")
-    parser.add_argument("-e", "--experiment", type=str, default='exp_4', help="experiment unique identifier")
+    parser.add_argument("-e", "--experiment", type=str, default='exp_5', help="experiment unique identifier")
     parser.add_argument("-v", "--verbose", action='store_true', help="verbosity")
 
     args = parser.parse_args()
