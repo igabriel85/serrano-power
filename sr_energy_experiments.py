@@ -131,10 +131,10 @@ def load_data(index_col='time'):
     # Dirty fix for df_clean_audsome
     df_clean_audsome.drop(['target_cpu_master',
                            'target_mem_master', 'target_copy_master', 'target_ddot_master'], axis=1, inplace=True)
-    custom_scoring_reporting("Dataset chosen ...")
+    print_verbose("Dataset chosen ...")
     data = df_anomaly
     # drop_col = ['t1','t2','t3','t4']
-    custom_scoring_reporting("Remove unwanted columns ...")
+    print_verbose("Remove unwanted columns ...")
     # print("Shape before drop: {}".format(data.shape))
     # data.drop(drop_col, axis=1, inplace=True)
     # print("Shape after drop: {}".format(data.shape))
