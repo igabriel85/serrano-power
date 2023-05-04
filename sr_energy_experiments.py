@@ -914,14 +914,14 @@ def run(conf):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Serrano Energy consumption experiments",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("-f", "--file", default='cat.yaml', type=str, help="configuration file")
+    parser.add_argument("-f", "--file", default='ada.yaml', type=str, help="configuration file")
     parser.add_argument("-d", "--dataset", type=str, default='anomaly', help="choose dataset, can be one of: anomaly, "
                                                                              "audsome, clean, clean_audsome")
     parser.add_argument("-i", "--iterations", type=int, default=1, help="number of iterations")
     parser.add_argument("-cv", "--cross_validation", type=int, default=5, help="number of splits used for cv")
     parser.add_argument("-cvt", "--cross_validation_test", type=float, default=0.2, help="percent of test set")
-    parser.add_argument("-e", "--experiment", type=str, default='exp_6', help="experiment unique identifier")
-    parser.add_argument("-p", "--power_meter", type=int, default=0, help="power consumption")
+    parser.add_argument("-e", "--experiment", type=str, default='exp_power', help="experiment unique identifier")
+    parser.add_argument("-p", "--power_meter", type=int, default=1, help="power consumption")
     parser.add_argument("-v", "--verbose", action='store_true', help="verbosity")
 
     args = parser.parse_args()
