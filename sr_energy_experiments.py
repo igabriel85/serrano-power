@@ -236,7 +236,7 @@ def cv_exp(conf,
     :param exp_method_conf: ML method configuration
     :return:
     '''
-    power = conf['power_meter']
+    power_meter = conf['power_meter']
     # print("---->>>Power: {}".format(power))
     power_traces = []
     for i in range(conf['iterations']):
