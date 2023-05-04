@@ -212,7 +212,7 @@ def process_power_treces(traces,
         'duration': list_durations,
         'energy': list_energys
     }
-    df_report = pd.Dataframe(eng_rep)
+    df_report = pd.DataFrame(eng_rep)
     df_report.to_csv(fname)
 
 def cv_exp(conf,
