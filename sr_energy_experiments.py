@@ -381,7 +381,7 @@ def learning_dataprop(dist,
     :param exp_method_conf: experiment method conf
     :return:
     """
-    power = conf['power_meter']
+    power_meter = conf['power_meter']
     score_sets = []
     start_train = []
     end_train = []
