@@ -32,6 +32,20 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import shap
 
+# instrumenting code for power consumption
+try:
+    from pyJoules.device import DeviceFactory
+    from pyJoules.device.rapl_device import RaplPackageDomain, RaplDramDomain
+    from pyJoules.energy_meter import EnergyMeter
+
+    domains = [RaplPackageDomain(0)]
+    devices = DeviceFactory.create_devices(domains)
+    meter = EnergyMeter(devices)
+except:
+    print("pyJoules not installed")
+    power_meter = 0
+    pass
+
 # TODO check deprecation warning xgboost
 import warnings
 warnings.filterwarnings('ignore')
@@ -180,6 +194,27 @@ def select_method(exp_method_conf, params=None):
     return clf
 
 
+def process_power_treces(traces,
+                         fname):
+    list_time = []
+    list_tags = []
+    list_durations = []
+    list_energys = []
+    for trace in traces:
+        for e in trace:
+            list_time.append(e.timestamp)
+            list_tags.append(e.tag)
+            list_durations.append(e.duration)
+            list_energys.append(e.energy['package_0'])
+    eng_rep = {
+        'timestamp': list_time,
+        'tag': list_tags,
+        'duration': list_durations,
+        'energy': list_energys
+    }
+    df_report = pd.Dataframe(eng_rep)
+    df_report.to_csv(fname)
+
 def cv_exp(conf,
            clf,
            sss,
@@ -187,7 +222,7 @@ def cv_exp(conf,
            y,
            definitions,
            model_dir,
-           exp_method_conf
+           exp_method_conf,
            ):
     '''
     Cross validation experiment
@@ -201,6 +236,9 @@ def cv_exp(conf,
     :param exp_method_conf: ML method configuration
     :return:
     '''
+    power = conf['power_meter']
+    # print("---->>>Power: {}".format(power))
+    power_traces = []
     for i in range(conf['iterations']):
         print_verbose("Starting iteration {}".format(i))
         report = {
@@ -222,6 +260,8 @@ def cv_exp(conf,
 
             print_verbose("Start training ....")
             start_time_train = time.time()
+            if power_meter:
+                meter.start(tag=f'CV_{exp_method_conf["method"]}_Iteration_{i}_Fold_{fold}_train')
             clf.fit(Xtrain, ytrain)
             end_time_train = time.time()
             train_time = end_time_train - start_time_train
@@ -232,7 +272,13 @@ def cv_exp(conf,
 
             print_verbose("Predicting ....")
             start_time_test = time.time()
+            if power_meter:
+                meter.record(tag=f'CV_{exp_method_conf["method"]}_Iteration_{i}_Fold_{fold}_predict')
             ypred = clf.predict(Xtest)
+            if power_meter:
+                meter.stop()
+                trace = meter.get_trace()
+                power_traces.append(trace)
             end_time_test = time.time()
             predict_time = end_time_test - start_time_test
 
@@ -310,8 +356,10 @@ def cv_exp(conf,
         print_verbose("Saving final report ...")
         # Validation Report
         df_report = pd.DataFrame(report)
-        final_report = "Model_{}_{}_iteration_{}_report.csv".format(exp_method_conf['method'], conf['experiment'], i)
+        final_report = "Model_{}_{}_iteration_{}_cv_report.csv".format(exp_method_conf['method'], conf['experiment'], i)
         df_report.to_csv(os.path.join(model_dir, final_report), index=False)
+        if power_meter:
+            process_power_treces(power_traces, os.path.join(model_dir, "Model_{}_{}_iteration_{}_cv_power_report.csv".format(exp_method_conf['method'], conf['experiment'], i)))
 
 
 def learning_dataprop(dist,
@@ -333,6 +381,7 @@ def learning_dataprop(dist,
     :param exp_method_conf: experiment method conf
     :return:
     """
+    power = conf['power_meter']
     score_sets = []
     start_train = []
     end_train = []
@@ -341,11 +390,14 @@ def learning_dataprop(dist,
     end_predict = []
     predict_time = []
     data_frac = []
+    power_traces = []
     for frac in dist:
         X_subset = X.sample(frac=frac)
         y_subset = y.sample(frac=frac)
         data_frac.append(frac)
         start_time_train = time.time()
+        if power_meter:
+            meter.start(tag=f"{exp_method_conf['method']}_train_{frac}")
         clf.fit(X_subset, y_subset)
         end_time_train = time.time()
         start_train.append(start_time_train)
@@ -353,7 +405,12 @@ def learning_dataprop(dist,
         print_verbose("Training time: {}".format(end_time_train - start_time_train))
         train_time.append(end_time_train - start_time_train)
         start_predict_time = time.time()
+        if power_meter:
+            meter.record(tag=f"{exp_method_conf['method']}_predict_{frac}")
         ypredict = clf.predict(X_subset)
+        if power_meter:
+            meter.stop()
+            power_traces.append(meter.get_trace())
         end_predict_time = time.time()
         start_predict.append(start_predict_time)
         end_predict.append(end_predict_time)
@@ -377,7 +434,10 @@ def learning_dataprop(dist,
                                   f"{exp_method_conf['method']}_{conf['experiment']}_learningcurve_datafraction.csv"),
                      index=False)
 
-
+    if power_meter:
+        process_power_treces(power_traces,
+                             os.path.join(model_dir, "Model_{}_{}_datafraction_power_report.csv".format(exp_method_conf['method'],
+                                                                                   conf['experiment'])))
     # Plot learningcurve
     plt.figure(dpi=600)
     plt.grid()
@@ -385,7 +445,7 @@ def learning_dataprop(dist,
     plt.ylabel('F1')
     plt.xlabel('Data Sample Fraction')
     plt.savefig(os.path.join(model_dir, f"{exp_method_conf['method']}_{conf['experiment']}_learningcurve_datafraction.png"))
-    plt.show()
+
 
 
 def rfe_ser(clf,
@@ -395,13 +455,14 @@ def rfe_ser(clf,
             model_dir,
             exp_id,
             exp_method_conf,
+            conf,
             fi=None):
     df_iter = pd.DataFrame(index=X.index)
     if fi is None:
         fi = X.columns.values
     else:
         fi = fi
-
+    power_meter = conf['power_meter']
     print_verbose("RFE Started, using {} ...".format(len(fi)))
     rfe_start_time = time.time()
     np_train_scores = np.empty((0, sss.n_splits))
@@ -410,6 +471,7 @@ def rfe_ser(clf,
     np_predict_test_time = np.empty((0, sss.n_splits))
     np_predict_train_time = np.empty((0, sss.n_splits))
     feature_num = []
+    power_traces = []
     for col in fi:
         df_iter[col] = X[col]
         start_train = []
@@ -424,10 +486,13 @@ def rfe_ser(clf,
 
         cv_scores_test = []
         cv_scores_train = []
+        fold=1
         for train_index, test_index in sss.split(df_iter, y):
             Xtrain, Xtest = df_iter.iloc[train_index], df_iter.iloc[test_index]
             ytrain, ytest = y.iloc[train_index], y.iloc[test_index]
             start_time_train = time.time()
+            if power_meter:
+                meter.start(tag=f"{exp_method_conf['method']}_train_{col}_fold_{fold}")
             clf.fit(Xtrain, ytrain)
             end_time_train = time.time()
             start_train.append(start_time_train)
@@ -435,6 +500,8 @@ def rfe_ser(clf,
             print_verbose("Training time: {}".format(end_time_train - start_time_train))
             train_time.append(end_time_train - start_time_train)
             start_predict_time_train = time.time()
+            if power_meter:
+                meter.record(tag=f"{exp_method_conf['method']}_predict_train_{col}_fold_{fold}")
             ypredict_train = clf.predict(Xtrain)
             end_predict_time_train = time.time()
             start_predict_train.append(start_predict_time_train)
@@ -443,7 +510,13 @@ def rfe_ser(clf,
             predict_time_train.append(end_predict_time_train - start_predict_time_train)
 
             start_predict_time = time.time()
+            if power_meter:
+                meter.record(tag=f"{exp_method_conf['method']}_predict_test_{col}_fold_{fold}")
             ypredict_test = clf.predict(Xtest)
+            if power_meter:
+                meter.stop()
+                trace = meter.get_trace()
+                power_traces.append(trace)
             end_predict_time = time.time()
             print_verbose("Prediction time: {}".format(end_predict_time - start_predict_time))
 
@@ -521,6 +594,10 @@ def rfe_ser(clf,
     df_rfe_report = pd.DataFrame(report_rfe, index=[0])
     df_rfe_report.to_csv(os.path.join(model_dir, f"{exp_method_conf['method']}_{exp_id}_times_rfe.csv"), index=False)
 
+    if power_meter:
+        process_power_treces(power_traces,
+                             os.path.join(model_dir, "Model_{}_{}_rfe_power_report.csv".format(exp_method_conf['method'],
+                                                                                conf['experiment'])))
         # report_dct ={
         #     'start_train': start_train,
         #     'end_train': end_train,
@@ -553,7 +630,8 @@ def validation_curve(X,
                      sss,
                      exp_method_conf,
                      model_dir,
-                     exp_id):
+                     exp_id,
+                     conf):
     """
         :param X: Dataset for training
         :param y: Ground Truth of training data
@@ -567,6 +645,8 @@ def validation_curve(X,
     # Read original params
     method_name = exp_method_conf['method']
 
+    power_meter = conf['power_meter']
+    power_traces = []
     for i, clf_param in enumerate(exp_method_conf['validationcurve']):
         np_train_scores = np.empty((0, sss.n_splits))
         np_test_scores = np.empty((0, sss.n_splits))
@@ -610,6 +690,8 @@ def validation_curve(X,
                 ytrain, ytest = y.iloc[train_index], y.iloc[test_index]
                 clf_param = select_method(exp_method_conf, params)
                 start_train_time = time.time()
+                if power_meter:
+                    meter.start(tag=f"train_{method_name}_{param_name}_{param_values[fold - 1]}_{fold}_{exp_id}")
                 clf_param.fit(Xtrain, ytrain)
                 end_train_time = time.time()
 
@@ -619,7 +701,14 @@ def validation_curve(X,
                 train_time.append(end_train_time - start_train_time)
 
                 start_predict_time = time.time()
+                if power_meter:
+                    meter.record(tag=f"predict_{method_name}_{param_name}_{param_values[fold - 1]}_{fold}_{exp_id}")
                 ypred = clf_param.predict(Xtrain)
+                if power_meter:
+                    meter.stop()
+                    trace = meter.get_trace()
+                    power_traces.append(trace)
+
                 end_train_time = time.time()
 
                 print_verbose("Prediction time: {}".format(end_train_time - start_predict_time))
@@ -679,6 +768,12 @@ def validation_curve(X,
         # plt.legend(loc='upper right')
         plt.legend(loc="best")
         plt.savefig(os.path.join(model_dir, f"{method_name}_{exp_id}_validationcurve_{param_name}.png"))
+
+        if power_meter:
+            process_power_treces(power_traces,
+                                 os.path.join(model_dir,
+                                              "Model_{}_{}_validation_curves_power_report.csv".format(exp_method_conf['method'],
+                                                                                        conf['experiment'])))
 def run(conf):
     exp_dir, model_dir = check_data_folders(conf)
     # Load data
@@ -803,14 +898,15 @@ def run(conf):
                          sss,
                          exp_method_conf,
                          model_dir,
-                         conf['experiment'])
+                         conf['experiment'],
+                         conf)
 
     if 'rfe' in exp_method_conf.keys():
         print_verbose(exp_method_conf['rfe'])
         if isinstance(exp_method_conf['rfe'], list):
-            rfe_ser(clf, X, y, model_dir, conf['experiment'], exp_method_conf, fi=exp_method_conf['rfe'])
+            rfe_ser(clf, X, y, model_dir, conf['experiment'], exp_method_conf, conf=conf, fi=exp_method_conf['rfe'])
         else:
-            rfe_ser(clf, sss, X, y, model_dir, conf['experiment'], exp_method_conf)
+            rfe_ser(clf, sss, X, y, model_dir, conf['experiment'], exp_method_conf, conf)
 
     print_verbose("Execution finished ...")
 
@@ -825,6 +921,7 @@ if __name__ == "__main__":
     parser.add_argument("-cv", "--cross_validation", type=int, default=5, help="number of splits used for cv")
     parser.add_argument("-cvt", "--cross_validation_test", type=float, default=0.2, help="percent of test set")
     parser.add_argument("-e", "--experiment", type=str, default='exp_6', help="experiment unique identifier")
+    parser.add_argument("-p", "--power_meter", type=int, default=0, help="power consumption")
     parser.add_argument("-v", "--verbose", action='store_true', help="verbosity")
 
     args = parser.parse_args()
