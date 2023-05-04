@@ -691,7 +691,7 @@ def validation_curve(X,
                 clf_param = select_method(exp_method_conf, params)
                 start_train_time = time.time()
                 if power_meter:
-                    meter.start(tag=f"train_{method_name}_{param_name}_{param_values[fold - 1]}_{fold}_{exp_id}")
+                    meter.start(tag=f"train_{method_name}_{param}_{fold}_{exp_id}")
                 clf_param.fit(Xtrain, ytrain)
                 end_train_time = time.time()
 
@@ -702,7 +702,7 @@ def validation_curve(X,
 
                 start_predict_time = time.time()
                 if power_meter:
-                    meter.record(tag=f"predict_{method_name}_{param_name}_{param_values[fold - 1]}_{fold}_{exp_id}")
+                    meter.record(tag=f"predict_{method_name}_{param_name}_{param}_{fold}_{exp_id}")
                 ypred = clf_param.predict(Xtrain)
                 if power_meter:
                     meter.stop()
