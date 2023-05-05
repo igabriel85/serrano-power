@@ -14,9 +14,7 @@ validationcurve:
   - 6
   - 10
   - 15
-  - 25
-  - 50
-  - 100
+  - 16
 - param_name: iterations
   param_range:
   - 10

@@ -737,7 +737,7 @@ def validation_curve(X,
             }
             df_report = pd.DataFrame(report)
             df_report.to_csv(os.path.join(model_dir,
-                                          f"{method_name}_{exp_id}_validationcurve_{param_name}_{param}.csv"),
+                                          f"{method_name}_{exp_id}_validationcurve_{param_name}_{param[param_name]}.csv"),
                              index=False)
             np_train_scores = np.append(np_train_scores, [cv_scores_train], axis=0)
             np_test_scores = np.append(np_test_scores, [cv_scores_test], axis=0)
