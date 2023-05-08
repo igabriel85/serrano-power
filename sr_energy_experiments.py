@@ -35,9 +35,13 @@ import shap
 # instrumenting code for power consumption
 try:
     from pyJoules.device import DeviceFactory
-    from pyJoules.device.rapl_device import RaplPackageDomain, RaplDramDomain
+    from pyJoules.device.rapl_device import RaplPackageDomain, RaplDramDomain, RaplCoreDomain
     from pyJoules.energy_meter import EnergyMeter
-
+    try:
+        domains = [RaplPackageDomain(0), RaplDramDomain(0), RaplCoreDomain(0)]
+    except Exception as inst:
+        print(f"Missing RAPL Domain with {type(inst)} and {inst.args}")
+        domains = [RaplPackageDomain(0)]
     domains = [RaplPackageDomain(0)]
     devices = DeviceFactory.create_devices(domains)
     meter = EnergyMeter(devices)
@@ -737,7 +741,7 @@ def validation_curve(X,
             }
             df_report = pd.DataFrame(report)
             df_report.to_csv(os.path.join(model_dir,
-                                          f"{method_name}_{exp_id}_validationcurve_{param_name}_{param[param_name]}.csv"),
+                                          f"{method_name}_{exp_id}_validationcurve_{param_name}_{param}.csv"),
                              index=False)
             np_train_scores = np.append(np_train_scores, [cv_scores_train], axis=0)
             np_test_scores = np.append(np_test_scores, [cv_scores_test], axis=0)
