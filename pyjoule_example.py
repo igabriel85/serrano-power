@@ -8,7 +8,10 @@ import time
 print(f"Available Domains: {RaplDevice.available_package_domains()}")
 print(f"Available DRAM domains: {RaplDevice.available_dram_domains()}")
 
-domains = [RaplPackageDomain(0), RaplCoreDomain(0), RaplDramDomain(0)]
+domains = [RaplPackageDomain(0),
+           RaplCoreDomain(0),
+           # RaplDramDomain(0) # only on servers
+           ]
 devices = DeviceFactory.create_devices(domains)
 meter = EnergyMeter(devices)
 
