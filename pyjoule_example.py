@@ -1,9 +1,12 @@
 from pyJoules.device import DeviceFactory
-from pyJoules.device.rapl_device import RaplPackageDomain, RaplDramDomain, RaplCoreDomain
+from pyJoules.device.rapl_device import RaplPackageDomain, RaplDramDomain, RaplCoreDomain, RaplDevice
 from pyJoules.energy_meter import EnergyMeter
 import pandas as pd
 
 import time
+
+print(f"Available Domains: {RaplDevice.available_package_domains()}")
+print(f"Available DRAM domains: {RaplDevice.available_dram_domains()}")
 
 domains = [RaplPackageDomain(0), RaplCoreDomain(0), RaplDramDomain(0)]
 devices = DeviceFactory.create_devices(domains)
@@ -44,5 +47,5 @@ eng_rep = {
     'duration': list_durations,
     'energy' : list_energys
 }
-df_report = pd.Dataframe(eng_rep)
+df_report = pd.DataFrame(eng_rep)
 df_report.to_csv('df_rep.csv')
