@@ -17,9 +17,11 @@ def bar():
 
 traces = []
 for i in range(5):
-    meter.start(tag=f'foo_{i}')
+    tag1 = f'foo_{i}'
+    meter.start(tag=tag1)
     foo()
-    meter.record(tag=f'bar_{i}')
+    tag2 = f'bar_{i}'
+    meter.record(tag=tag2)
     bar()
     meter.stop()
     trace = meter.get_trace()
