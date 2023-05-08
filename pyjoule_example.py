@@ -5,7 +5,7 @@ import pandas as pd
 
 import time
 
-domains = [RaplPackageDomain(0), RaplCoreDomain(0), RaplDramDomain(0), ]
+domains = [RaplPackageDomain(0), RaplCoreDomain(0), RaplDramDomain(0)]
 devices = DeviceFactory.create_devices(domains)
 meter = EnergyMeter(devices)
 
@@ -17,11 +17,9 @@ def bar():
 
 traces = []
 for i in range(5):
-    tag1 = f'foo_{i}'
-    meter.start(tag=tag1)
+    meter.start(tag=f"foo_{i}")
     foo()
-    tag2 = f'bar_{i}'
-    meter.record(tag=tag2)
+    meter.record(tag=f"bar_{i}")
     bar()
     meter.stop()
     trace = meter.get_trace()
