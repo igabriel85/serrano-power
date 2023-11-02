@@ -8,7 +8,7 @@ Goals:
 import os
 # limit GPU allocation
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID" #issue #152
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 import argparse
 import yaml
 import sys
@@ -25,6 +25,7 @@ from imblearn.metrics import classification_report_imbalanced
 import xgboost as xgb
 import lightgbm as lgm
 from catboost import CatBoostClassifier
+import tensorflow as tf
 from subprocess import check_output
 # from sklearn.externals import joblib
 from joblib import dump, load
@@ -35,14 +36,15 @@ import shap
 # instrumenting code for power consumption
 try:
     from pyJoules.device import DeviceFactory
-    from pyJoules.device.rapl_device import RaplPackageDomain, RaplDramDomain, RaplCoreDomain
+    from pyJoules.device.rapl_device import RaplPackageDomain, RaplCoreDomain
+    from pyJoules.device.nvidia_device import NvidiaGPUDomain
     from pyJoules.energy_meter import EnergyMeter
     try:
-        domains = [RaplPackageDomain(0), RaplDramDomain(0), RaplCoreDomain(0)]
+        domains = [RaplPackageDomain(0), RaplCoreDomain(0), NvidiaGPUDomain(0)]
     except Exception as inst:
         print(f"Missing RAPL Domain with {type(inst)} and {inst.args}")
-        domains = [RaplPackageDomain(0)]
-    domains = [RaplPackageDomain(0)]
+        domains = [RaplPackageDomain(0),
+                   NvidiaGPUDomain(0)]
     devices = DeviceFactory.create_devices(domains)
     meter = EnergyMeter(devices)
 except:
@@ -158,6 +160,51 @@ def load_data(index_col='time'):
     # print("Shape after drop: {}".format(data.shape))
     return df_anomaly, df_audsome, df_clean, df_clean_audsome
 
+
+def dnn_serrano(
+        optimizer='adam', #adam, adagrad, sgd
+        learning_r=0.01,
+        kernel_init='he_uniform',
+        layer_1=20,
+        layer_2=40,
+        layer_3=40,
+        layer_0=100,
+        drop=0.1,
+        loss='categorical_crossentropy',
+        activation_1='relu', # elu, selu
+        out_activation='sigmoid'
+):
+    # y_oh = pd.get_dummies(y, prefix='target')
+    # n_inputs, n_outputs = X.shape[1], len(y_oh.nunique())
+    n_inputs, n_outputs = 89, 5
+    x_in = tf.keras.layers.Input(shape=n_inputs)
+    if layer_0:
+        x = tf.keras.layers.Dense(layer_0, input_dim=n_inputs, kernel_initializer=kernel_init, activation=activation_1)(x_in)
+        x = tf.keras.layers.Dropout(drop)(x)
+    if layer_1:
+        x = tf.keras.layers.Dense(layer_1, input_dim=n_inputs, kernel_initializer=kernel_init, activation=activation_1)(x)
+        x = tf.keras.layers.Dropout(drop)(x)
+    if layer_2:
+        x = tf.keras.layers.Dense(layer_2, input_dim=n_inputs, kernel_initializer=kernel_init, activation=activation_1)(x)
+        x = tf.keras.layers.Dropout(drop)(x)
+    if layer_3:
+        x = tf.keras.layers.Dense(layer_3, input_dim=n_inputs, kernel_initializer=kernel_init, activation=activation_1)(x)
+        x = tf.keras.layers.Dropout(drop)(x)
+    x_out = tf.keras.layers.Dense(n_outputs, activation=out_activation)(x)
+    if optimizer == 'adam':
+        opt = tf.keras.optimizers.Adam(learning_rate=learning_r)
+    if optimizer == 'adagrad':
+        opt = tf.keras.optimizers.Adagrad(learning_rate=learning_r)
+    if optimizer == 'sgd':
+        opt = tf.keras.optimizers.SGD(learning_rate=learning_r)
+    if optimizer == 'rmsprop':
+        opt = tf.keras.optimizers.RMSprop(learning_rate=learning_r)
+    else:
+        opt = tf.keras.optimizers.Adam(learning_rate=0.01)
+    model = tf.keras.models.Model(inputs=x_in, outputs=x_out)
+    model.compile(optimizer=opt, loss=loss, metrics=['accuracy'])
+    return model
+
 def select_method(exp_method_conf, params=None):
     if 'AdaBoostClassifier' in exp_method_conf['method']:
         if params is None:
@@ -189,7 +236,11 @@ def select_method(exp_method_conf, params=None):
             clf = CatBoostClassifier(**exp_method_conf['params'])
         else:
             clf = CatBoostClassifier(**params)
-
+    elif 'dnn' in exp_method_conf['method']:
+        if params is None:
+            clf = dnn_serrano(**exp_method_conf['params'])
+        else:
+            clf = dnn_serrano(**params)
     else:
         sys.exit("unknown method: {}".format(exp_method_conf['method']))
 
@@ -204,17 +255,20 @@ def process_power_treces(traces,
     list_tags = []
     list_durations = []
     list_energys = []
+    list_gpu = []
     for trace in traces:
         for e in trace:
             list_time.append(e.timestamp)
             list_tags.append(e.tag)
             list_durations.append(e.duration)
             list_energys.append(e.energy['package_0'])
+            list_gpu.append(e.energy['nvidia_gpu_0'])
     eng_rep = {
         'timestamp': list_time,
         'tag': list_tags,
         'duration': list_durations,
-        'energy': list_energys
+        'energy': list_energys,
+        'gpu': list_gpu,
     }
     df_report = pd.DataFrame(eng_rep)
     df_report.to_csv(fname)
@@ -266,7 +320,24 @@ def cv_exp(conf,
             start_time_train = time.time()
             if power_meter:
                 meter.start(tag=f'CV_{exp_method_conf["method"]}_Iteration_{i}_Fold_{fold}_train')
-            clf.fit(Xtrain, ytrain)
+            if exp_method_conf["method"] == 'dnn':
+                patience = 10
+                batch_size = 32
+                epochs = 1000
+                reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2,
+                                              patience=5, min_lr=0.001)
+                early_stopping = tf.keras.callbacks.EarlyStopping(monitor="loss", patience=patience)  # early stop patience
+                y_oh = pd.get_dummies(ytrain, prefix='target')
+                history = clf.fit(np.asarray(Xtrain), np.asarray(y_oh),
+                                  batch_size=batch_size,
+                                  epochs=epochs,
+                                  callbacks=[early_stopping,
+                                             reduce_lr
+                                             ],
+                                  validation_split=0.33,
+                                  verbose=1)
+            else:
+                clf.fit(Xtrain, ytrain)
             end_time_train = time.time()
             train_time = end_time_train - start_time_train
 
@@ -279,6 +350,10 @@ def cv_exp(conf,
             if power_meter:
                 meter.record(tag=f'CV_{exp_method_conf["method"]}_Iteration_{i}_Fold_{fold}_predict')
             ypred = clf.predict(Xtest)
+            if exp_method_conf["method"] == 'dnn':
+                y_oh_test = pd.get_dummies(ytest, prefix='target')
+                ypred = np.argmax(ypred, axis=1)
+
             if power_meter:
                 meter.stop()
                 trace = meter.get_trace()
@@ -335,25 +410,53 @@ def cv_exp(conf,
             ht_cf.figure.savefig(os.path.join(model_dir, cf_fig), bbox_inches='tight')
             plt.close()
 
-            # Feature importance
-            print_verbose("Extracting Feature improtance ...")
-            feat_importances = pd.Series(clf.feature_importances_, index=X.columns)
-            sorted_feature = feat_importances.sort_values(ascending=True)
-            # Limit number of sorted features
-            sorted_feature = sorted_feature.tail(20)
-            n_col = len(sorted_feature)
+            if exp_method_conf['method'] == 'dnn':
+                ml_meth_plot = exp_method_conf['method']
+                print_verbose("Summerise training history ...")
+                plt.plot(history.history['accuracy'])
+                plt.plot(history.history['val_accuracy'])
+                plt.title(f'{ml_meth_plot}_iteration_{i}_fold_{fold} accuracy')
+                plt.ylabel('accuracy')
+                plt.xlabel('epoch')
+                plt.legend(['train', 'test'], loc='upper left')
+                h_acc_fig = "DNN_Acc_{}_{}_{}.png".format(ml_meth_plot, i, fold)
+                plt.savefig(os.path.join(model_dir, h_acc_fig))
 
-            # Plot the feature importances of the forest
-            # plt.figure(figsize=(10,20), dpi=600) For publication only
-            plt.title("Feature importances Fold {}".format(fold), fontsize=15)
-            plt.barh(range(n_col), sorted_feature,
-                     color="r", align="center")
-            # If you want to define your own labels,
-            # change indices to a list of labels on the following line.
-            plt.yticks(range(n_col), sorted_feature.index)
-            plt.ylim([-1, n_col])
-            fi_fig = "FI_{}_{}_iteration_{}_fold_{}.png".format(exp_method_conf['method'], conf['experiment'], i, fold)
-            plt.savefig(os.path.join(model_dir, fi_fig), bbox_inches='tight')
+
+                plt.plot(history.history['loss'])
+                plt.plot(history.history['val_loss'])
+                plt.title(f'{ml_meth_plot}_iteration_{i}_fold_{fold} loss')
+                plt.ylabel('loss')
+                plt.xlabel('epoch')
+                plt.legend(['train', 'test'], loc='upper left')
+                h_loss_fig = "DNN_Loss_{}_{}_{}.png".format(ml_meth_plot, i, fold)
+                plt.savefig(os.path.join(model_dir, h_loss_fig))
+
+                # DNN history export
+                df_history = pd.DataFrame(history.history)
+                history_name = "{}_{}_{}_history.csv".format(ml_meth_plot, i, fold)
+                df_history.to_csv(os.path.join(model_dir, history_name), index=False)
+
+            else:
+                # Feature importance
+                print_verbose("Extracting Feature importance ...")
+                feat_importances = pd.Series(clf.feature_importances_, index=X.columns)
+                sorted_feature = feat_importances.sort_values(ascending=True)
+                # Limit number of sorted features
+                sorted_feature = sorted_feature.tail(20)
+                n_col = len(sorted_feature)
+
+                # Plot the feature importances of the forest
+                # plt.figure(figsize=(10,20), dpi=600) For publication only
+                plt.title("Feature importances Fold {}".format(fold), fontsize=15)
+                plt.barh(range(n_col), sorted_feature,
+                         color="r", align="center")
+                # If you want to define your own labels,
+                # change indices to a list of labels on the following line.
+                plt.yticks(range(n_col), sorted_feature.index)
+                plt.ylim([-1, n_col])
+                fi_fig = "FI_{}_{}_iteration_{}_fold_{}.png".format(exp_method_conf['method'], conf['experiment'], i, fold)
+                plt.savefig(os.path.join(model_dir, fi_fig), bbox_inches='tight')
 
             # increment fold count
             fold += 1
@@ -402,7 +505,24 @@ def learning_dataprop(dist,
         start_time_train = time.time()
         if power_meter:
             meter.start(tag=f"{exp_method_conf['method']}_train_{frac}")
-        clf.fit(X_subset, y_subset)
+        if exp_method_conf["method"] == 'dnn':
+            patience = 10
+            batch_size = 32
+            epochs = 1000
+            reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2,
+                                                             patience=5, min_lr=0.001)
+            early_stopping = tf.keras.callbacks.EarlyStopping(monitor="loss", patience=patience)  # early stop patience
+            y_oh = pd.get_dummies(y_subset, prefix='target')
+            history = clf.fit(np.asarray(X_subset), np.asarray(y_oh),
+                              batch_size=batch_size,
+                              epochs=epochs,
+                              callbacks=[early_stopping,
+                                         reduce_lr
+                                         ],
+                              validation_split=0.33,
+                              verbose=1)
+        else:
+            clf.fit(X_subset, y_subset)
         end_time_train = time.time()
         start_train.append(start_time_train)
         end_train.append(end_time_train)
@@ -412,6 +532,10 @@ def learning_dataprop(dist,
         if power_meter:
             meter.record(tag=f"{exp_method_conf['method']}_predict_{frac}")
         ypredict = clf.predict(X_subset)
+        if exp_method_conf["method"] == 'dnn':
+            y_oh_test = pd.get_dummies(y_subset, prefix='target')
+            ypredict = np.argmax(ypredict, axis=1)
+
         if power_meter:
             meter.stop()
             power_traces.append(meter.get_trace())
@@ -497,7 +621,25 @@ def rfe_ser(clf,
             start_time_train = time.time()
             if power_meter:
                 meter.start(tag=f"{exp_method_conf['method']}_train_{col}_fold_{fold}")
-            clf.fit(Xtrain, ytrain)
+            if exp_method_conf["method"] == 'dnn':
+                patience = 10
+                batch_size = 32
+                epochs = 1000
+                reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2,
+                                                                 patience=5, min_lr=0.001)
+                early_stopping = tf.keras.callbacks.EarlyStopping(monitor="loss",
+                                                                  patience=patience)  # early stop patience
+                y_oh = pd.get_dummies(ytrain, prefix='target')
+                history = clf.fit(np.asarray(Xtrain), np.asarray(y_oh),
+                                  batch_size=batch_size,
+                                  epochs=epochs,
+                                  callbacks=[early_stopping,
+                                             reduce_lr
+                                             ],
+                                  validation_split=0.33,
+                                  verbose=1)
+            else:
+                clf.fit(Xtrain, ytrain)
             end_time_train = time.time()
             start_train.append(start_time_train)
             end_train.append(end_time_train)
@@ -507,6 +649,9 @@ def rfe_ser(clf,
             if power_meter:
                 meter.record(tag=f"{exp_method_conf['method']}_predict_train_{col}_fold_{fold}")
             ypredict_train = clf.predict(Xtrain)
+            if exp_method_conf["method"] == 'dnn':
+                y_oh_test = pd.get_dummies(ytrain, prefix='target')
+                ypredict_train = np.argmax(ypredict_train, axis=1)
             end_predict_time_train = time.time()
             start_predict_train.append(start_predict_time_train)
             end_predict_train.append(end_predict_time_train)
@@ -517,6 +662,10 @@ def rfe_ser(clf,
             if power_meter:
                 meter.record(tag=f"{exp_method_conf['method']}_predict_test_{col}_fold_{fold}")
             ypredict_test = clf.predict(Xtest)
+            if exp_method_conf["method"] == 'dnn':
+                y_oh_test = pd.get_dummies(ytest, prefix='target')
+                ypredict_test = np.argmax(ypredict_test, axis=1)
+
             if power_meter:
                 meter.stop()
                 trace = meter.get_trace()
@@ -696,7 +845,25 @@ def validation_curve(X,
                 start_train_time = time.time()
                 if power_meter:
                     meter.start(tag=f"train_{method_name}_{param}_{fold}_{exp_id}")
-                clf_param.fit(Xtrain, ytrain)
+                if exp_method_conf["method"] == 'dnn':
+                    patience = 10
+                    batch_size = 32
+                    epochs = 1000
+                    reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2,
+                                                                     patience=5, min_lr=0.001)
+                    early_stopping = tf.keras.callbacks.EarlyStopping(monitor="loss",
+                                                                      patience=patience)  # early stop patience
+                    y_oh = pd.get_dummies(ytrain, prefix='target')
+                    history = clf_param.fit(np.asarray(Xtrain), np.asarray(y_oh),
+                                      batch_size=batch_size,
+                                      epochs=epochs,
+                                      callbacks=[early_stopping,
+                                                 reduce_lr
+                                                 ],
+                                      validation_split=0.33,
+                                      verbose=1)
+                else:
+                    clf_param.fit(Xtrain, ytrain)
                 end_train_time = time.time()
 
                 print_verbose("Training time: {}".format(end_train_time - start_train_time))
@@ -708,6 +875,10 @@ def validation_curve(X,
                 if power_meter:
                     meter.record(tag=f"predict_{method_name}_{param_name}_{param}_{fold}_{exp_id}")
                 ypred = clf_param.predict(Xtrain)
+
+                if exp_method_conf["method"] == 'dnn':
+                    y_oh_test = pd.get_dummies(ytrain, prefix='target')
+                    ypred = np.argmax(ypred, axis=1)
                 if power_meter:
                     meter.stop()
                     trace = meter.get_trace()

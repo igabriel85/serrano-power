@@ -1,0 +1,77 @@
+---
+method: dnn
+params:
+  optimizer: "sgd"
+  learning_r: 0.01
+  kernel_init: he_uniform
+  layer_1: 50
+  layer_2: 50
+  layer_3: 50
+  layer_0: 100
+  drop: 0
+  loss: categorical_crossentropy
+  activation_1: selu
+  out_activation: sigmoid
+validationcurve:
+- param_name: optimizer
+  param_range:
+  - sgd
+  - rmsprop
+  - adagrad
+  - adam
+- param_name: layer_1
+  param_range:
+  - 0
+  - 10
+  - 20
+  - 30
+  - 50
+  - 100
+  - 200
+- param_name: layer_2
+  param_range:
+  - 0
+  - 10
+  - 20
+  - 30
+  - 50
+  - 100
+  - 200
+- param_name: layer_3
+  param_range:
+  - 0
+  - 10
+  - 20
+  - 30
+  - 50
+  - 100
+  - 200
+- param_name: layer_0
+  param_range:
+  - 0
+  - 10
+  - 20
+  - 30
+  - 50
+  - 100
+  - 200
+- param_name: drop
+    param_range:
+    - 0
+    - 0.1
+    - 0.2
+    - 0.3
+    - 0.5
+    - 0.7
+    - 0.8
+- param_name: activation_1
+  param_range:
+  - selu
+  - relu
+  - elu
+rfe: 'True'
+datafraction:
+    start: 0.3
+    stop: 1.0
+    num: 10
+
