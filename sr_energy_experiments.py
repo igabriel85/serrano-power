@@ -877,8 +877,8 @@ def validation_curve(X,
                 start_predict_time = time.time()
                 if power_meter:
                     meter.record(tag=f"predict_{method_name}_{param_name}_{param}_{fold}_{exp_id}")
-                ypred = clf_param.predict(Xtrain)
 
+                ypred = clf_param.predict(Xtrain)
                 if exp_method_conf["method"] == 'dnn':
                     y_oh_test = pd.get_dummies(ytrain, prefix='target')
                     ypred = np.argmax(ypred, axis=1)
@@ -898,6 +898,9 @@ def validation_curve(X,
                 f1_weighted_score_train = f1_score(ytrain, ypred, average='weighted')
 
                 ypredict_test = clf_param.predict(Xtest)
+                if exp_method_conf["method"] == 'dnn':
+                    y_oh_test = pd.get_dummies(ytrain, prefix='target')
+                    ypredict_test = np.argmax(ypredict_test, axis=1)
                 f1_weighted_score_test = f1_score(ytest, ypredict_test, average='weighted')
 
                 cv_scores_test.append(f1_weighted_score_test)
