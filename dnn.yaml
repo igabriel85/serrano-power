@@ -56,7 +56,7 @@ validationcurve:
   - 100
   - 200
 - param_name: drop
-    param_range:
+  param_range:
     - 0
     - 0.1
     - 0.2
