@@ -172,11 +172,13 @@ def dnn_serrano(
         drop=0.1,
         loss='categorical_crossentropy',
         activation_1='relu', # elu, selu
-        out_activation='sigmoid'
+        out_activation='sigmoid',
+        input_dim=89,
+        output_dim=5,
 ):
     # y_oh = pd.get_dummies(y, prefix='target')
     # n_inputs, n_outputs = X.shape[1], len(y_oh.nunique())
-    n_inputs, n_outputs = 89, 5
+    n_inputs, n_outputs = input_dim, output_dim
     x_in = tf.keras.layers.Input(shape=n_inputs)
     if layer_0:
         x = tf.keras.layers.Dense(layer_0, input_dim=n_inputs, kernel_initializer=kernel_init, activation=activation_1)(x_in)
@@ -633,6 +635,7 @@ def rfe_ser(clf,
                 early_stopping = tf.keras.callbacks.EarlyStopping(monitor="loss",
                                                                   patience=patience)  # early stop patience
                 y_oh = pd.get_dummies(ytrain, prefix='target')
+                clf = dnn_serrano(**exp_method_conf['params'], input_dim=len(df_iter.columns.values))
                 history = clf.fit(np.asarray(Xtrain), np.asarray(y_oh),
                                   batch_size=batch_size,
                                   epochs=epochs,
