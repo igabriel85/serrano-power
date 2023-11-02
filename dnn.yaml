@@ -48,7 +48,6 @@ validationcurve:
   - 200
 - param_name: layer_0
   param_range:
-  - 0
   - 10
   - 20
   - 30
