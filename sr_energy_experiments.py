@@ -356,7 +356,7 @@ def select_method(exp_method_conf, params=None):
         sys.exit("unknown method: {}".format(exp_method_conf['method']))
 
     print_verbose("Method chosen: {}".format(clf))
-    if 'dnn' in exp_method_conf['method']:
+    if 'dnn' in exp_method_conf['method'] or 'cnn' in exp_method_conf['method']:
         print_verbose("Method params: {}".format(clf.get_config()))
     else:
         print_verbose("Method params: {}".format(clf.get_params().keys()))
