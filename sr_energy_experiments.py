@@ -1195,8 +1195,7 @@ def validation_curve(X,
                     ytest = valid_generator_val.classes
                 else:
                     ypredict_test = clf_param.predict(Xtest)
-                if exp_method_conf["method"] == 'dnn':
-                    y_oh_test = pd.get_dummies(ytrain, prefix='target')
+                if exp_method_conf["method"] == 'dnn' or exp_method_conf["method"] == 'cnn':
                     ypredict_test = np.argmax(ypredict_test, axis=1)
                 f1_weighted_score_test = f1_score(ytest, ypredict_test, average='weighted')
 
