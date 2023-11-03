@@ -1,0 +1,90 @@
+---
+method: cnn
+params:
+  num_classes: 5
+  optimizer: "adam"
+  learning_r: 0.001
+  layer_1: 512
+  layer_2: 256
+  layer_3: 128
+  drop_1: 0.0
+  drop_2: 0.0
+  drop_3: 0.0
+  drop_4: 0.0
+  drop_5: 0.0
+  drop_6: 0.0
+  activation_1: relu
+  activation_2: relu
+  activation_3: relu
+  activation_4: relu
+  activation_5: relu
+  activation_6: relu
+validationcurve:
+- param_name: optimizer
+  param_range:
+  - sgd
+  - rmsprop
+  - adagrad
+  - adam
+- param_name: layer_1
+  param_range:
+  - 0
+  - 16
+  - 32
+  - 64
+  - 128
+  - 256
+  - 512
+- param_name: layer_2
+  param_range:
+  - 0
+  - 16
+  - 32
+  - 64
+  - 128
+  - 256
+  - 512
+- param_name: layer_3
+  param_range:
+  - 0
+  - 16
+  - 32
+  - 64
+  - 128
+  - 256
+  - 512
+- param_name: drop_1
+  param_range:
+    - 0.0
+    - 0.2
+    - 0.5
+    - 0.7
+- param_name: drop_2
+  param_range:
+    - 0.0
+    - 0.2
+    - 0.5
+    - 0.7
+- param_name: drop_3
+  param_range:
+    - 0.0
+    - 0.2
+    - 0.5
+    - 0.7
+- param_name: drop_6
+  param_range:
+    - 0.0
+    - 0.2
+    - 0.5
+    - 0.7
+- param_name: activation_1
+  param_range:
+  - selu
+  - relu
+  - elu
+rfe: 'True'
+datafraction:
+    start: 0.3
+    stop: 1.0
+    num: 10
+

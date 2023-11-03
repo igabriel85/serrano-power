@@ -26,9 +26,11 @@ import xgboost as xgb
 import lightgbm as lgm
 from catboost import CatBoostClassifier
 import tensorflow as tf
+from tab2img.converter import Tab2Img
 from subprocess import check_output
 # from sklearn.externals import joblib
 from joblib import dump, load
+from skimage.io import imsave
 import matplotlib.pyplot as plt
 import seaborn as sns
 import shap
@@ -174,11 +176,11 @@ def dnn_serrano(
         activation_1='relu', # elu, selu
         out_activation='sigmoid',
         input_dim=89,
-        output_dim=5,
+        outp_dim=5
 ):
     # y_oh = pd.get_dummies(y, prefix='target')
     # n_inputs, n_outputs = X.shape[1], len(y_oh.nunique())
-    n_inputs, n_outputs = input_dim, output_dim
+    n_inputs, n_outputs = input_dim, outp_dim
     x_in = tf.keras.layers.Input(shape=n_inputs)
     if layer_0:
         x = tf.keras.layers.Dense(layer_0, input_dim=n_inputs, kernel_initializer=kernel_init, activation=activation_1)(x_in)
@@ -206,6 +208,108 @@ def dnn_serrano(
     model = tf.keras.models.Model(inputs=x_in, outputs=x_out)
     model.compile(optimizer=opt, loss=loss, metrics=['accuracy'])
     return model
+
+def build_model_v2(num_classes,
+                   layer_1=512,
+                   layer_2=256,
+                   layer_3=128,
+                   drop_1=0.0,
+                   drop_2=0.0,
+                   drop_3=0.0,
+                   drop_4=0.0,
+                   drop_5=0.0,
+                   drop_6=0.0,
+                   activation_1='relu',
+                   activation_2='relu',
+                   activation_3='relu',
+                   activation_4='relu',
+                   activation_5='relu',
+                   activation_6='relu',
+                   optimizer='adam',
+                   learning_r='0.001'
+                   ):
+    model = tf.keras.Sequential()
+    model.add(tf.keras.layers.Conv2D(16, (3, 3), activation='relu', input_shape=(8, 8, 1)))
+    if drop_1:
+        model.add(tf.keras.layers.Dropout(drop_1))
+    model.add(tf.keras.layers.MaxPooling2D((1, 1)))
+    model.add(tf.keras.layers.Conv2D(32, (3, 3), activation=activation_1))
+    if drop_2:
+        model.add(tf.keras.layers.Dropout(drop_2))
+    model.add(tf.keras.layers.MaxPooling2D((1, 1)))
+    model.add(tf.keras.layers.Conv2D(32, (3, 3), activation=activation_2))
+    if drop_3:
+        model.add(tf.keras.layers.Dropout(drop_3))
+    model.add(tf.keras.layers.Flatten())
+    if layer_1:
+        model.add(tf.keras.layers.Dense(layer_1, activation=activation_3))
+    if layer_2:
+        model.add(tf.keras.layers.Dense(layer_2, activation=activation_4))
+    if drop_4:
+        model.add(tf.keras.layers.Dropout(drop_4))
+    if layer_3:
+        model.add(tf.keras.layers.Dense(layer_3, activation=activation_5))
+    if drop_5:
+        model.add(tf.keras.layers.Dropout(drop_5))
+    model.add(tf.keras.layers.Dense(64, activation=activation_6))
+    if drop_6:
+        model.add(tf.keras.layers.Dropout(drop_6))
+    model.add(tf.keras.layers.Dense(num_classes, activation='softmax'))
+    if optimizer == 'adam':
+        opt = tf.keras.optimizers.Adam(learning_rate=learning_r)
+    if optimizer == 'adagrad':
+        opt = tf.keras.optimizers.Adagrad(learning_rate=learning_r)
+    if optimizer == 'sgd':
+        opt = tf.keras.optimizers.SGD(learning_rate=learning_r)
+    if optimizer == 'rmsprop':
+        opt = tf.keras.optimizers.RMSprop(learning_rate=learning_r)
+    else:
+        opt = tf.keras.optimizers.Adam(learning_rate=0.001)
+    model.compile(
+        optimizer=opt,
+        loss=tf.keras.losses.CategoricalCrossentropy(from_logits=True),
+        metrics=['accuracy'])
+    return model
+
+
+def generate_images(images,
+                    train_data_index,
+                    test_data_index,
+                    labels,
+                    train_dir=train_dir):
+    input_dir = os.path.join(train_dir, 'input')
+    if os.path.exists(input_dir):
+        import shutil
+        shutil.rmtree(input_dir)
+        print("Removed existing training dir")
+        os.mkdir(input_dir)
+    else:
+        os.mkdir(input_dir)
+
+    for ind, label in enumerate(labels):
+        if ind in train_data_index:
+            train_dir = os.path.join(input_dir, 'training')
+            label_dir = os.path.join(train_dir, str(label))
+            if os.path.exists(label_dir):
+                pass
+            else:
+                os.makedirs(label_dir)
+        elif ind in test_data_index:
+            val_dir = os.path.join(input_dir, 'validation')
+            label_dir = os.path.join(val_dir, str(label))
+            if os.path.exists(label_dir):
+                pass
+            else:
+                os.makedirs(label_dir)
+        else:
+            print(ind)
+            import sys
+            sys.exit()
+        im_name = f'data_{ind}.png'
+        im_path = os.path.join(label_dir, im_name)
+        imsave(im_path,images[ind].astype(np.uint8)) # fixed warnings
+    return train_dir, val_dir
+
 
 def select_method(exp_method_conf, params=None):
     if 'AdaBoostClassifier' in exp_method_conf['method']:
@@ -243,6 +347,11 @@ def select_method(exp_method_conf, params=None):
             clf = dnn_serrano(**exp_method_conf['params'])
         else:
             clf = dnn_serrano(**params)
+    elif 'cnn' in exp_method_conf['method']:
+        if params is None:
+            clf = build_model_v2(**exp_method_conf['params'])
+        else:
+            clf = build_model_v2(**params)
     else:
         sys.exit("unknown method: {}".format(exp_method_conf['method']))
 
@@ -286,6 +395,9 @@ def cv_exp(conf,
            definitions,
            model_dir,
            exp_method_conf,
+           images=None,
+           nice_y=None,
+           image_shape=None,
            ):
     '''
     Cross validation experiment
@@ -318,31 +430,77 @@ def cv_exp(conf,
         fold = 1
         for train_index, test_index in sss.split(X, y):
             print_verbose("Starting fold {}".format(fold))
-            Xtrain, Xtest = X.iloc[train_index], X.iloc[test_index]
-            ytrain, ytest = y.iloc[train_index], y.iloc[test_index]
+            if exp_method_conf["method"] == 'cnn':
+                try:
+                    train_dir, val_dir = generate_images(images, train_index, test_index, labels=nice_y)
+                except Exception as inst:
+                    print(f"Error while generating images for CNN with {type(inst)} and {inst.args}")
+                    sys.exit()
 
-            print_verbose("Start training ....")
-            start_time_train = time.time()
-            if power_meter:
-                meter.start(tag=f'CV_{exp_method_conf["method"]}_Iteration_{i}_Fold_{fold}_train')
-            if exp_method_conf["method"] == 'dnn':
-                patience = 10
+                # hardcoded params
                 batch_size = 32
                 epochs = 1000
+                patience = 10
+
+                start_time_train = time.time()
+                datagen = tf.keras.preprocessing.image.ImageDataGenerator()
+                train_generator = datagen.flow_from_directory(
+                    train_dir,
+                    color_mode='grayscale',
+                    shuffle=False,
+                    target_size=image_shape,
+                    batch_size=batch_size,
+                    class_mode='categorical'
+                )
+
+                valid_generator = datagen.flow_from_directory(
+                    val_dir,
+                    color_mode='grayscale',
+                    shuffle=False,
+                    target_size=image_shape,
+                    batch_size=batch_size,
+                    class_mode='categorical'
+                )
+
                 reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2,
-                                              patience=5, min_lr=0.001)
-                early_stopping = tf.keras.callbacks.EarlyStopping(monitor="loss", patience=patience)  # early stop patience
-                y_oh = pd.get_dummies(ytrain, prefix='target')
-                history = clf.fit(np.asarray(Xtrain), np.asarray(y_oh),
-                                  batch_size=batch_size,
-                                  epochs=epochs,
-                                  callbacks=[early_stopping,
-                                             reduce_lr
-                                             ],
-                                  validation_split=0.33,
-                                  verbose=1)
+                                                                 patience=5, min_lr=0.001)
+                early_stopping = tf.keras.callbacks.EarlyStopping(monitor="val_loss",
+                                                                  patience=patience)  # early stop patience
+
+                history = clf.fit(train_generator,
+                                    steps_per_epoch=train_generator.samples // batch_size,
+                                    epochs=epochs,
+                                    validation_data=valid_generator,
+                                    validation_steps=valid_generator.samples // batch_size,
+                                    verbose=1,
+                                    callbacks=[early_stopping, reduce_lr]
+                                    )
             else:
-                clf.fit(Xtrain, ytrain)
+                Xtrain, Xtest = X.iloc[train_index], X.iloc[test_index]
+                ytrain, ytest = y.iloc[train_index], y.iloc[test_index]
+
+                print_verbose("Start training ....")
+                start_time_train = time.time()
+                if power_meter:
+                    meter.start(tag=f'CV_{exp_method_conf["method"]}_Iteration_{i}_Fold_{fold}_train')
+                if exp_method_conf["method"] == 'dnn':
+                    patience = 10
+                    batch_size = 32
+                    epochs = 1000
+                    reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2,
+                                                  patience=5, min_lr=0.001)
+                    early_stopping = tf.keras.callbacks.EarlyStopping(monitor="loss", patience=patience)  # early stop patience
+                    y_oh = pd.get_dummies(ytrain, prefix='target')
+                    history = clf.fit(np.asarray(Xtrain), np.asarray(y_oh),
+                                      batch_size=batch_size,
+                                      epochs=epochs,
+                                      callbacks=[early_stopping,
+                                                 reduce_lr
+                                                 ],
+                                      validation_split=0.33,
+                                      verbose=1)
+                else:
+                    clf.fit(Xtrain, ytrain)
             end_time_train = time.time()
             train_time = end_time_train - start_time_train
 
@@ -354,9 +512,15 @@ def cv_exp(conf,
             start_time_test = time.time()
             if power_meter:
                 meter.record(tag=f'CV_{exp_method_conf["method"]}_Iteration_{i}_Fold_{fold}_predict')
-            ypred = clf.predict(Xtest)
-            if exp_method_conf["method"] == 'dnn':
-                y_oh_test = pd.get_dummies(ytest, prefix='target')
+            if exp_method_conf["method"] == 'cnn':
+                train_generator.reset()
+                ypred = clf.predict_generator(train_generator,
+                                              # steps=train_generator.samples // batch_size
+                                              )
+                ytest = train_generator.classes
+            else:
+                ypred = clf.predict(Xtest)
+            if exp_method_conf["method"] == 'dnn' or exp_method_conf["method"] == 'cnn':
                 ypred = np.argmax(ypred, axis=1)
 
             if power_meter:
@@ -415,7 +579,7 @@ def cv_exp(conf,
             ht_cf.figure.savefig(os.path.join(model_dir, cf_fig), bbox_inches='tight')
             plt.close()
 
-            if exp_method_conf['method'] == 'dnn':
+            if exp_method_conf['method'] == 'dnn' or exp_method_conf['method'] == 'cnn':
                 ml_meth_plot = exp_method_conf['method']
                 print_verbose("Summerise training history ...")
                 plt.plot(history.history['accuracy'])
@@ -538,7 +702,6 @@ def learning_dataprop(dist,
             meter.record(tag=f"{exp_method_conf['method']}_predict_{frac}")
         ypredict = clf.predict(X_subset)
         if exp_method_conf["method"] == 'dnn':
-            y_oh_test = pd.get_dummies(y_subset, prefix='target')
             ypredict = np.argmax(ypredict, axis=1)
 
         if power_meter:
@@ -656,7 +819,6 @@ def rfe_ser(clf,
                 meter.record(tag=f"{exp_method_conf['method']}_predict_train_{col}_fold_{fold}")
             ypredict_train = clf.predict(Xtrain)
             if exp_method_conf["method"] == 'dnn':
-                y_oh_test = pd.get_dummies(ytrain, prefix='target')
                 ypredict_train = np.argmax(ypredict_train, axis=1)
             end_predict_time_train = time.time()
             start_predict_train.append(start_predict_time_train)
@@ -669,7 +831,6 @@ def rfe_ser(clf,
                 meter.record(tag=f"{exp_method_conf['method']}_predict_test_{col}_fold_{fold}")
             ypredict_test = clf.predict(Xtest)
             if exp_method_conf["method"] == 'dnn':
-                y_oh_test = pd.get_dummies(ytest, prefix='target')
                 ypredict_test = np.argmax(ypredict_test, axis=1)
 
             if power_meter:
@@ -1049,6 +1210,14 @@ def run(conf):
     # print_verbose("Method chosen: {}".format(clf))
     # print_verbose("Method params: {}".format(clf.get_params().keys()))
 
+    # Tabular to image transformation
+    images = None
+    IMAGE_SHAPE = None
+    if 'cnn' in exp_method_conf['method']:
+        model_tab = Tab2Img()
+        images = model_tab.fit_transform(np.asarray(X), np.asarray(y))
+        IMAGE_SHAPE = (8, 8)
+
     # Cross validation
     sss = StratifiedShuffleSplit(n_splits=conf['cross_validation'], test_size=conf['cross_validation_test'],
                                  random_state=42)
@@ -1061,7 +1230,11 @@ def run(conf):
            y=y,
            definitions=definitions,
            model_dir=model_dir,
-           exp_method_conf=exp_method_conf)
+           exp_method_conf=exp_method_conf,
+           images=images,
+           nice_y=nice_y,
+           image_shape=IMAGE_SHAPE,
+           )
 
     if 'datafraction' in exp_method_conf.keys():
         print_verbose(exp_method_conf['datafraction'])
