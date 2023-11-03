@@ -1187,7 +1187,14 @@ def validation_curve(X,
 
                 f1_weighted_score_train = f1_score(ytrain, ypred, average='weighted')
 
-                ypredict_test = clf_param.predict(Xtest)
+                if exp_method_conf["method"] == 'cnn':
+                    valid_generator_val.reset()
+                    ypredict_test = model_clf.predict_generator(valid_generator_val,
+                                                                 # steps=train_generator.samples // batch_size
+                                                                 )
+                    ytest = valid_generator_val.classes
+                else:
+                    ypredict_test = clf_param.predict(Xtest)
                 if exp_method_conf["method"] == 'dnn':
                     y_oh_test = pd.get_dummies(ytrain, prefix='target')
                     ypredict_test = np.argmax(ypredict_test, axis=1)
