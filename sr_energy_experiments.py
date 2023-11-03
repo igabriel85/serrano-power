@@ -466,7 +466,8 @@ def cv_exp(conf,
                                                                  patience=5, min_lr=0.001)
                 early_stopping = tf.keras.callbacks.EarlyStopping(monitor="val_loss",
                                                                   patience=patience)  # early stop patience
-
+                if power_meter:
+                    meter.start(tag=f'CV_{exp_method_conf["method"]}_Iteration_{i}_Fold_{fold}_train')
                 history = clf.fit(train_generator,
                                     steps_per_epoch=train_generator.samples // batch_size,
                                     epochs=epochs,
