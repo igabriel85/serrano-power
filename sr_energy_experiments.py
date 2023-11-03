@@ -724,29 +724,30 @@ def learning_dataprop(dist,
                                               verbose=1,
                                               callbacks=[early_stopping, reduce_lr]
                                               )
-        if exp_method_conf["method"] == 'dnn':
-            patience = 10
-            batch_size = 32
-            epochs = 1000
-            start_time_train = time.time()
-            if power_meter:
-                meter.start(tag=f"{exp_method_conf['method']}_train_{frac}")
-            reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2,
-                                                             patience=5, min_lr=0.001)
-            early_stopping = tf.keras.callbacks.EarlyStopping(monitor="loss", patience=patience)  # early stop patience
-            y_oh = pd.get_dummies(y_subset, prefix='target')
-            history = clf.fit(np.asarray(X_subset), np.asarray(y_oh),
-                              batch_size=batch_size,
-                              epochs=epochs,
-                              callbacks=[early_stopping,
-                                         reduce_lr
-                                         ],
-                              validation_split=0.33,
-                              verbose=1)
         else:
-            if power_meter:
-                meter.start(tag=f"{exp_method_conf['method']}_train_{frac}")
-            clf.fit(X_subset, y_subset)
+            if exp_method_conf["method"] == 'dnn':
+                patience = 10
+                batch_size = 32
+                epochs = 1000
+                start_time_train = time.time()
+                if power_meter:
+                    meter.start(tag=f"{exp_method_conf['method']}_train_{frac}")
+                reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2,
+                                                                 patience=5, min_lr=0.001)
+                early_stopping = tf.keras.callbacks.EarlyStopping(monitor="loss", patience=patience)  # early stop patience
+                y_oh = pd.get_dummies(y_subset, prefix='target')
+                history = clf.fit(np.asarray(X_subset), np.asarray(y_oh),
+                                  batch_size=batch_size,
+                                  epochs=epochs,
+                                  callbacks=[early_stopping,
+                                             reduce_lr
+                                             ],
+                                  validation_split=0.33,
+                                  verbose=1)
+            else:
+                if power_meter:
+                    meter.start(tag=f"{exp_method_conf['method']}_train_{frac}")
+                clf.fit(X_subset, y_subset)
         end_time_train = time.time()
         start_train.append(start_time_train)
         end_train.append(end_time_train)
