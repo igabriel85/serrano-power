@@ -501,6 +501,8 @@ def cv_exp(conf,
                                       validation_split=0.33,
                                       verbose=1)
                 else:
+                    if power_meter:
+                        meter.start(tag=f'CV_{exp_method_conf["method"]}_Iteration_{i}_Fold_{fold}_train')
                     clf.fit(Xtrain, ytrain)
             end_time_train = time.time()
             train_time = end_time_train - start_time_train
@@ -645,7 +647,9 @@ def learning_dataprop(dist,
                       y,
                       model_dir,
                       conf,
-                      exp_method_conf
+                      exp_method_conf,
+                      images=None,
+                      image_shape=None,
                       ):
     """
     Plot learning curve for different data sample proportion
@@ -669,16 +673,64 @@ def learning_dataprop(dist,
     data_frac = []
     power_traces = []
     for frac in dist:
-        X_subset = X.sample(frac=frac)
-        y_subset = y.sample(frac=frac)
+        if exp_method_conf["method"] == 'cnn':
+            tf.keras.backend.clear_session()
+            X_subset = X.head(int(X.shape[0] * frac))
+            y_subset = y.head(int(X.shape[0] * frac))
+        else:
+            X_subset = X.sample(frac=frac)
+            y_subset = y.sample(frac=frac)
         data_frac.append(frac)
-        start_time_train = time.time()
-        if power_meter:
-            meter.start(tag=f"{exp_method_conf['method']}_train_{frac}")
+
+        if exp_method_conf["method"] == 'cnn':
+            patience = 10
+            batch_size = 32
+            epochs = 1000
+            clf_subsample_model = build_model_v2(**exp_method_conf['method'])
+            sss_sub = StratifiedShuffleSplit(n_splits=1, test_size=0.3, random_state=42)
+            for i, (train_index, test_index) in enumerate(sss_sub.split(X_subset, y_subset)):
+                train_data_index = train_index
+                test_data_index = test_index
+            train_dir, val_dir = generate_images(images, train_data_index, test_data_index, labels=y_subset)
+            datagen_sub = tf.keras.preprocessing.image.ImageDataGenerator()
+            train_generator_sub = datagen_sub.flow_from_directory(
+                train_dir,
+                color_mode='grayscale',
+                shuffle=False,
+                target_size=image_shape,
+                batch_size=batch_size,
+                class_mode='categorical'
+            )
+
+            valid_generator_sub = datagen_sub.flow_from_directory(
+                val_dir,
+                color_mode='grayscale',
+                shuffle=False,
+                target_size=image_shape,
+                batch_size=batch_size,
+                class_mode='categorical'
+            )
+            reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2,
+                                                             patience=5, min_lr=0.001)
+            early_stopping = tf.keras.callbacks.EarlyStopping(monitor="loss", patience=patience)  # early stop patience
+            start_time_train = time.time()
+            if power_meter:
+                meter.start(tag=f"{exp_method_conf['method']}_train_{frac}")
+            history = clf_subsample_model.fit(train_generator_sub,
+                                              steps_per_epoch=train_generator_sub.samples // batch_size,
+                                              epochs=epochs,
+                                              validation_data=valid_generator_sub,
+                                              validation_steps=valid_generator_sub.samples // batch_size,
+                                              verbose=1,
+                                              callbacks=[early_stopping, reduce_lr]
+                                              )
         if exp_method_conf["method"] == 'dnn':
             patience = 10
             batch_size = 32
             epochs = 1000
+            start_time_train = time.time()
+            if power_meter:
+                meter.start(tag=f"{exp_method_conf['method']}_train_{frac}")
             reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2,
                                                              patience=5, min_lr=0.001)
             early_stopping = tf.keras.callbacks.EarlyStopping(monitor="loss", patience=patience)  # early stop patience
@@ -692,6 +744,8 @@ def learning_dataprop(dist,
                               validation_split=0.33,
                               verbose=1)
         else:
+            if power_meter:
+                meter.start(tag=f"{exp_method_conf['method']}_train_{frac}")
             clf.fit(X_subset, y_subset)
         end_time_train = time.time()
         start_train.append(start_time_train)
@@ -701,8 +755,15 @@ def learning_dataprop(dist,
         start_predict_time = time.time()
         if power_meter:
             meter.record(tag=f"{exp_method_conf['method']}_predict_{frac}")
-        ypredict = clf.predict(X_subset)
-        if exp_method_conf["method"] == 'dnn':
+        if exp_method_conf["method"] == 'cnn':
+            train_generator_sub.reset()
+            ypredict = clf_subsample_model.predict_generator(train_generator_sub,
+                                                             # steps=train_generator.samples // batch_size
+                                                             )
+            y_subset = train_generator_sub.classes
+        else:
+            ypredict = clf.predict(X_subset)
+        if exp_method_conf["method"] == 'dnn' or exp_method_conf["method"] == 'cnn':
             ypredict = np.argmax(ypredict, axis=1)
 
         if power_meter:
@@ -754,6 +815,9 @@ def rfe_ser(clf,
             exp_method_conf,
             conf,
             fi=None):
+    if exp_method_conf["method"] == 'cnn':
+        print("Currently not supported for CNN models")
+        return 0
     df_iter = pd.DataFrame(index=X.index)
     if fi is None:
         fi = X.columns.values
@@ -952,7 +1016,11 @@ def validation_curve(X,
                      exp_method_conf,
                      model_dir,
                      exp_id,
-                     conf):
+                     conf,
+                     images=None,
+                     image_shape=None,
+                     nice_y=None,
+                        ):
     """
         :param X: Dataset for training
         :param y: Ground Truth of training data
@@ -1007,31 +1075,81 @@ def validation_curve(X,
             predict_time = []
             fold = 1
             for train_index, test_index in sss.split(X, y):
-                Xtrain, Xtest = X.iloc[train_index], X.iloc[test_index]
-                ytrain, ytest = y.iloc[train_index], y.iloc[test_index]
-                clf_param = select_method(exp_method_conf, params)
-                start_train_time = time.time()
-                if power_meter:
-                    meter.start(tag=f"train_{method_name}_{param}_{fold}_{exp_id}")
-                if exp_method_conf["method"] == 'dnn':
+                if exp_method_conf["method"] == 'cnn':
                     patience = 10
                     batch_size = 32
                     epochs = 1000
+                    tf.keras.backend.clear_session()
+                    train_data_index = train_index
+                    test_data_index = test_index
+
+                    train_dir, val_dir = generate_images(images, train_data_index, test_data_index, labels=nice_y)
+                    datagen_val = tf.keras.preprocessing.image.ImageDataGenerator()
+                    train_generator_val = datagen_val.flow_from_directory(
+                        train_dir,
+                        color_mode='grayscale',
+                        shuffle=False,
+                        target_size=image_shape,
+                        batch_size=batch_size,
+                        class_mode='categorical'
+                    )
+
+                    valid_generator_val = datagen_val.flow_from_directory(
+                        val_dir,
+                        color_mode='grayscale',
+                        shuffle=False,
+                        target_size=image_shape,
+                        batch_size=batch_size,
+                        class_mode='categorical'
+                    )
+                    optimizer = params.pop('optimizer', tf.keras.optimizers.Adam(lr=0.0001))
+                    print(f"Optimizer is set to: {optimizer}")
+                    model_clf = build_model_v2(**params)
+                    params.update({"optimizer": optimizer})
                     reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2,
                                                                      patience=5, min_lr=0.001)
                     early_stopping = tf.keras.callbacks.EarlyStopping(monitor="loss",
                                                                       patience=patience)  # early stop patience
-                    y_oh = pd.get_dummies(ytrain, prefix='target')
-                    history = clf_param.fit(np.asarray(Xtrain), np.asarray(y_oh),
-                                      batch_size=batch_size,
-                                      epochs=epochs,
-                                      callbacks=[early_stopping,
-                                                 reduce_lr
-                                                 ],
-                                      validation_split=0.33,
-                                      verbose=1)
+                    start_train_time = time.time()
+                    if power_meter:
+                        meter.start(tag=f"train_{method_name}_{param}_{fold}_{exp_id}")
+                    history = model_clf.fit(train_generator_val,
+                                            steps_per_epoch=train_generator_val.samples // batch_size,
+                                            epochs=epochs,
+                                            validation_data=valid_generator_val,
+                                            validation_steps=valid_generator_val.samples // batch_size,
+                                            verbose=1,
+                                            callbacks=[early_stopping, reduce_lr]
+                                            )
                 else:
-                    clf_param.fit(Xtrain, ytrain)
+                    Xtrain, Xtest = X.iloc[train_index], X.iloc[test_index]
+                    ytrain, ytest = y.iloc[train_index], y.iloc[test_index]
+                    clf_param = select_method(exp_method_conf, params)
+                    start_train_time = time.time()
+                    if power_meter:
+                        meter.start(tag=f"train_{method_name}_{param}_{fold}_{exp_id}")
+                    if exp_method_conf["method"] == 'dnn':
+                        patience = 10
+                        batch_size = 32
+                        epochs = 1000
+                        reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2,
+                                                                         patience=5, min_lr=0.001)
+                        early_stopping = tf.keras.callbacks.EarlyStopping(monitor="loss",
+                                                                          patience=patience)  # early stop patience
+                        y_oh = pd.get_dummies(ytrain, prefix='target')
+                        history = clf_param.fit(np.asarray(Xtrain), np.asarray(y_oh),
+                                          batch_size=batch_size,
+                                          epochs=epochs,
+                                          callbacks=[early_stopping,
+                                                     reduce_lr
+                                                     ],
+                                          validation_split=0.33,
+                                          verbose=1)
+                    else:
+                        start_train_time = time.time()
+                        if power_meter:
+                            meter.start(tag=f"train_{method_name}_{param}_{fold}_{exp_id}")
+                        clf_param.fit(Xtrain, ytrain)
                 end_train_time = time.time()
 
                 print_verbose("Training time: {}".format(end_train_time - start_train_time))
@@ -1043,9 +1161,15 @@ def validation_curve(X,
                 if power_meter:
                     meter.record(tag=f"predict_{method_name}_{param_name}_{param}_{fold}_{exp_id}")
 
-                ypred = clf_param.predict(Xtrain)
-                if exp_method_conf["method"] == 'dnn':
-                    y_oh_test = pd.get_dummies(ytrain, prefix='target')
+                if exp_method_conf["method"] == 'cnn':
+                    train_generator_val.reset()
+                    ypred = model_clf.predict_generator(train_generator_val,
+                                                        # steps=train_generator.samples // batch_size
+                                                        )
+                    ytrain = train_generator_val.classes
+                else:
+                    ypred = clf_param.predict(Xtrain)
+                if exp_method_conf["method"] == 'dnn' or exp_method_conf["method"] == 'cnn':
                     ypred = np.argmax(ypred, axis=1)
                 if power_meter:
                     meter.stop()
@@ -1246,7 +1370,9 @@ def run(conf):
                           y,
                           model_dir,
                           conf,
-                          exp_method_conf
+                          exp_method_conf,
+                          images=images,
+                          image_shape=IMAGE_SHAPE,
                           )
 
     if 'validationcurve' in exp_method_conf.keys():
