@@ -686,7 +686,7 @@ def learning_dataprop(dist,
             patience = 10
             batch_size = 32
             epochs = 1000
-            clf_subsample_model = build_model_v2(**exp_method_conf['method'])
+            clf_subsample_model = build_model_v2(**exp_method_conf['params'])
             sss_sub = StratifiedShuffleSplit(n_splits=1, test_size=0.3, random_state=42)
             for i, (train_index, test_index) in enumerate(sss_sub.split(X_subset, y_subset)):
                 train_data_index = train_index
