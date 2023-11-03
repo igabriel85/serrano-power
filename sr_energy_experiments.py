@@ -1384,7 +1384,10 @@ def run(conf):
                          exp_method_conf,
                          model_dir,
                          conf['experiment'],
-                         conf)
+                         conf,
+                         images=images,
+                         image_shape=IMAGE_SHAPE,
+                         nice_y=nice_y)
 
     if 'rfe' in exp_method_conf.keys():
         print_verbose(exp_method_conf['rfe'])
