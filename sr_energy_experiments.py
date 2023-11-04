@@ -1286,8 +1286,20 @@ def run(conf):
     X = data.drop('target', axis=1)
     y = data['target']
 
+
+    with open(conf['file'], 'r') as cfile:
+        if not os.path.isfile(conf['file']):
+            print("Experimental conf file missing !!!")
+            sys.exit(1)
+        exp_method_conf = yaml.load(cfile, Loader=yaml.UnsafeLoader)
+
     # Scaling the data
-    scaler = MinMaxScaler()
+    if exp_method_conf['method'] == 'cnn':
+        # X = X.astype('float32')
+        # X /= 255
+        scaler = MinMaxScaler(feature_range=(0, 255), clip=True)
+    else:
+        scaler = MinMaxScaler()
     X_scaled = scaler.fit_transform(X)
     X = pd.DataFrame(X_scaled, index=X.index, columns=X.columns)  #
 
@@ -1318,11 +1330,7 @@ def run(conf):
     #     "rfe": True,
     #
     # }
-    with open(conf['file'], 'r') as cfile:
-        if not os.path.isfile(conf['file']):
-            print("Experimental conf file missing !!!")
-            sys.exit(1)
-        exp_method_conf = yaml.load(cfile, Loader=yaml.UnsafeLoader)
+
     # exp_method_conf = yaml.load(conf['file'], Loader=yaml.UnsafeLoader)
     print_verbose(exp_method_conf.keys())
     clf = select_method(exp_method_conf)
