@@ -854,6 +854,8 @@ def rfe_ser(clf,
 
         if exp_method_conf["method"] == 'cnn':
             model_rfe = Tab2Img()
+            print(df_iter.shape)
+            print(df_iter.shape[-1])
             if df_iter.shape[-1] < 4:  # skip if only one feature
                 continue
             else:
