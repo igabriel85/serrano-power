@@ -859,7 +859,9 @@ def rfe_ser(clf,
             if df_iter.shape[-1] < 4:  # skip if only one feature
                 continue
             else:
+                print(f'+++{df_iter.shape}')
                 images = model_rfe.fit_transform(np.asarray(df_iter), np.asarray(y))
+                print(images.shape)
 
         fold=1
         for train_index, test_index in sss.split(df_iter, y):
