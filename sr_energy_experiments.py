@@ -854,22 +854,22 @@ def rfe_ser(clf,
 
         if exp_method_conf["method"] == 'cnn':
             model_rfe = Tab2Img()
-            print(df_iter.shape)
-            print(df_iter.shape[-1])
-            if df_iter.shape[-1] < 5:  # skip if only one feature
+            # print(df_iter.shape)
+            # print(df_iter.shape[-1])
+            if df_iter.shape[-1] < 10:  # skip if only one feature
                 continue
             else:
-                print(f'+++{df_iter.shape}')
+                # print(f'+++{df_iter.shape}')
                 images = model_rfe.fit_transform(np.asarray(df_iter), np.asarray(y))
-                print(images.shape)
+                # print(images.shape)
 
         fold=1
         for train_index, test_index in sss.split(df_iter, y):
             if exp_method_conf["method"] == 'cnn':
                 try:
-                    print(f'before gen: {images.shape}')
+                    # print(f'before gen: {images.shape}')
                     train_dir, val_dir = generate_images(images, train_index, test_index, labels=nice_y)
-                    print(f'after gen: {images.shape}')
+                    # print(f'after gen: {images.shape}')
                 except Exception as inst:
                     print(f"Error while generating images for CNN with {type(inst)} and {inst.args}")
                     sys.exit()
@@ -899,7 +899,7 @@ def rfe_ser(clf,
                     batch_size=batch_size,
                     class_mode='categorical'
                 )
-                print(f"after generator {images.shape}")
+                # print(f"after generator {images.shape}")
                 reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2,
                                                                  patience=5, min_lr=0.001)
                 early_stopping = tf.keras.callbacks.EarlyStopping(monitor="loss",
@@ -907,9 +907,9 @@ def rfe_ser(clf,
                 start_time_train = time.time()
                 if power_meter:
                     meter.start(tag=f"{exp_method_conf['method']}_train_{col}_fold_{fold}")
-                print(images.shape)
-                print(images.shape[-2])
-                print(images.shape[-1])
+                # print(images.shape)
+                # print(images.shape[-2])
+                # print(images.shape[-1])
                 clf = build_model_v2(**exp_method_conf['params'], input_c1=images.shape[-2], input_c2=images.shape[-1])
                 history = clf.fit(train_generator_rfe,
                                                   steps_per_epoch=train_generator_rfe.samples // batch_size,
