@@ -868,6 +868,7 @@ def rfe_ser(clf,
             if exp_method_conf["method"] == 'cnn':
                 try:
                     train_dir, val_dir = generate_images(images, train_index, test_index, labels=nice_y)
+                    print(f'after gen: {images.shape}')
                 except Exception as inst:
                     print(f"Error while generating images for CNN with {type(inst)} and {inst.args}")
                     sys.exit()
@@ -897,7 +898,7 @@ def rfe_ser(clf,
                     batch_size=batch_size,
                     class_mode='categorical'
                 )
-
+                print(f"after generator {images.shape}")
                 reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2,
                                                                  patience=5, min_lr=0.001)
                 early_stopping = tf.keras.callbacks.EarlyStopping(monitor="loss",
@@ -905,6 +906,7 @@ def rfe_ser(clf,
                 start_time_train = time.time()
                 if power_meter:
                     meter.start(tag=f"{exp_method_conf['method']}_train_{col}_fold_{fold}")
+                print(images.shape)
                 print(images.shape[-2])
                 print(images.shape[-1])
                 clf = build_model_v2(**exp_method_conf['params'], input_c1=images.shape[-2], input_c2=images.shape[-1])
