@@ -856,7 +856,7 @@ def rfe_ser(clf,
             model_rfe = Tab2Img()
             # print(df_iter.shape)
             # print(df_iter.shape[-1])
-            if df_iter.shape[-1] < 10:  # skip if only one feature
+            if df_iter.shape[-1] < 20:  # skip if only one feature
                 continue
             else:
                 # print(f'+++{df_iter.shape}')
