@@ -919,7 +919,7 @@ def rfe_ser(clf,
                                                   verbose=1,
                                                   callbacks=[early_stopping, reduce_lr]
                                                   )
-            if exp_method_conf["method"] == 'dnn':
+            elif exp_method_conf["method"] == 'dnn':
                 patience = 10
                 batch_size = 32
                 epochs = 1000
