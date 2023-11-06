@@ -226,10 +226,13 @@ def build_model_v2(num_classes,
                    activation_5='relu',
                    activation_6='relu',
                    optimizer='adam',
-                   learning_r='0.001'
+                   learning_r='0.001',
+                   input_c1=8,
+                   input_c2=8,
+
                    ):
     model = tf.keras.Sequential()
-    model.add(tf.keras.layers.Conv2D(16, (3, 3), activation='relu', input_shape=(8, 8, 1)))
+    model.add(tf.keras.layers.Conv2D(16, (3, 3), activation='relu', input_shape=(input_c1, input_c2, 1)))
     if drop_1:
         model.add(tf.keras.layers.Dropout(drop_1))
     model.add(tf.keras.layers.MaxPooling2D((1, 1)))
@@ -815,10 +818,11 @@ def rfe_ser(clf,
             exp_id,
             exp_method_conf,
             conf,
-            fi=None):
-    if exp_method_conf["method"] == 'cnn':
-        print("Currently not supported for CNN models")
-        return 0
+            fi=None,
+            nice_y=None,):
+    # if exp_method_conf["method"] == 'cnn':
+    #     print("Currently not supported for CNN models")
+    #     return 0
     df_iter = pd.DataFrame(index=X.index)
     if fi is None:
         fi = X.columns.values
@@ -848,13 +852,66 @@ def rfe_ser(clf,
 
         cv_scores_test = []
         cv_scores_train = []
+
+        if exp_method_conf["method"] == 'cnn':
+            model_rfe = Tab2Img()
+            if len(df_iter.shape) == 1 or df_iter.shape[-1] == 1:  # skip if only one feature
+                continue
+            else:
+                images = model_rfe.fit_transform(np.asarray(df_iter), np.asarray(y))
+
         fold=1
         for train_index, test_index in sss.split(df_iter, y):
-            Xtrain, Xtest = df_iter.iloc[train_index], df_iter.iloc[test_index]
-            ytrain, ytest = y.iloc[train_index], y.iloc[test_index]
-            start_time_train = time.time()
-            if power_meter:
-                meter.start(tag=f"{exp_method_conf['method']}_train_{col}_fold_{fold}")
+            if exp_method_conf["method"] == 'cnn':
+                try:
+                    train_dir, val_dir = generate_images(images, train_index, test_index, labels=nice_y)
+                except Exception as inst:
+                    print(f"Error while generating images for CNN with {type(inst)} and {inst.args}")
+                    sys.exit()
+            else:
+                Xtrain, Xtest = df_iter.iloc[train_index], df_iter.iloc[test_index]
+                ytrain, ytest = y.iloc[train_index], y.iloc[test_index]
+
+            if exp_method_conf["method"] == 'cnn':
+                patience = 10
+                batch_size = 32
+                epochs = 1000
+                datagen_rfe = tf.keras.preprocessing.image.ImageDataGenerator()
+                train_generator_rfe = datagen_rfe.flow_from_directory(
+                    train_dir,
+                    color_mode='grayscale',
+                    shuffle=False,
+                    target_size=images.shape[-2:],
+                    batch_size=batch_size,
+                    class_mode='categorical'
+                )
+
+                valid_generator_rfe = datagen_rfe.flow_from_directory(
+                    val_dir,
+                    color_mode='grayscale',
+                    shuffle=False,
+                    target_size=images.shape[-2:],
+                    batch_size=batch_size,
+                    class_mode='categorical'
+                )
+
+                reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2,
+                                                                 patience=5, min_lr=0.001)
+                early_stopping = tf.keras.callbacks.EarlyStopping(monitor="loss",
+                                                                  patience=patience)  # early stop patience
+                start_time_train = time.time()
+                if power_meter:
+                    meter.start(tag=f"{exp_method_conf['method']}_train_{col}_fold_{fold}")
+
+                clf = build_model_v2(**exp_method_conf['params'], input_c1=images.shape[-2], input_c2=images.shape[-1])
+                history = clf.fit(train_generator_rfe,
+                                                  steps_per_epoch=train_generator_rfe.samples // batch_size,
+                                                  epochs=epochs,
+                                                  validation_data=valid_generator_rfe,
+                                                  validation_steps=valid_generator_rfe.samples // batch_size,
+                                                  verbose=1,
+                                                  callbacks=[early_stopping, reduce_lr]
+                                                  )
             if exp_method_conf["method"] == 'dnn':
                 patience = 10
                 batch_size = 32
@@ -865,6 +922,9 @@ def rfe_ser(clf,
                                                                   patience=patience)  # early stop patience
                 y_oh = pd.get_dummies(ytrain, prefix='target')
                 clf = dnn_serrano(**exp_method_conf['params'], input_dim=len(df_iter.columns.values))
+                start_time_train = time.time()
+                if power_meter:
+                    meter.start(tag=f"{exp_method_conf['method']}_train_{col}_fold_{fold}")
                 history = clf.fit(np.asarray(Xtrain), np.asarray(y_oh),
                                   batch_size=batch_size,
                                   epochs=epochs,
@@ -883,8 +943,15 @@ def rfe_ser(clf,
             start_predict_time_train = time.time()
             if power_meter:
                 meter.record(tag=f"{exp_method_conf['method']}_predict_train_{col}_fold_{fold}")
-            ypredict_train = clf.predict(Xtrain)
-            if exp_method_conf["method"] == 'dnn':
+            if exp_method_conf["method"] == 'cnn':
+                train_generator_rfe.reset()
+                ypredict_train = clf.predict_generator(train_generator_rfe,
+                                                       # steps=train_generator.samples // batch_size
+                                                       )
+                ytrain = train_generator_rfe.classes
+            else:
+                ypredict_train = clf.predict(Xtrain)
+            if exp_method_conf["method"] == 'dnn' or exp_method_conf["method"] == 'cnn':
                 ypredict_train = np.argmax(ypredict_train, axis=1)
             end_predict_time_train = time.time()
             start_predict_train.append(start_predict_time_train)
@@ -895,8 +962,15 @@ def rfe_ser(clf,
             start_predict_time = time.time()
             if power_meter:
                 meter.record(tag=f"{exp_method_conf['method']}_predict_test_{col}_fold_{fold}")
-            ypredict_test = clf.predict(Xtest)
-            if exp_method_conf["method"] == 'dnn':
+            if exp_method_conf["method"] == 'cnn':
+                valid_generator_rfe.reset()
+                ypredict_test = clf.predict_generator(valid_generator_rfe,
+                                                      # steps=train_generator.samples // batch_size
+                                                      )
+                ytest = valid_generator_rfe.classes
+            else:
+                ypredict_test = clf.predict(Xtest)
+            if exp_method_conf["method"] == 'dnn' or exp_method_conf["method"] == 'cnn':
                 ypredict_test = np.argmax(ypredict_test, axis=1)
 
             if power_meter:
