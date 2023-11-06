@@ -229,7 +229,6 @@ def build_model_v2(num_classes,
                    learning_r='0.001',
                    input_c1=8,
                    input_c2=8,
-
                    ):
     model = tf.keras.Sequential()
     model.add(tf.keras.layers.Conv2D(16, (3, 3), activation='relu', input_shape=(input_c1, input_c2, 1)))
@@ -902,7 +901,8 @@ def rfe_ser(clf,
                 start_time_train = time.time()
                 if power_meter:
                     meter.start(tag=f"{exp_method_conf['method']}_train_{col}_fold_{fold}")
-
+                print(images.shape[-2])
+                print(images.shape[-1])
                 clf = build_model_v2(**exp_method_conf['params'], input_c1=images.shape[-2], input_c2=images.shape[-1])
                 history = clf.fit(train_generator_rfe,
                                                   steps_per_epoch=train_generator_rfe.samples // batch_size,
