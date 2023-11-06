@@ -867,6 +867,7 @@ def rfe_ser(clf,
         for train_index, test_index in sss.split(df_iter, y):
             if exp_method_conf["method"] == 'cnn':
                 try:
+                    print(f'before gen: {images.shape}')
                     train_dir, val_dir = generate_images(images, train_index, test_index, labels=nice_y)
                     print(f'after gen: {images.shape}')
                 except Exception as inst:
