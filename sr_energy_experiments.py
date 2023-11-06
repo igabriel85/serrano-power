@@ -1480,9 +1480,9 @@ def run(conf):
     if 'rfe' in exp_method_conf.keys():
         print_verbose(exp_method_conf['rfe'])
         if isinstance(exp_method_conf['rfe'], list):
-            rfe_ser(clf, X, y, model_dir, conf['experiment'], exp_method_conf, conf=conf, fi=exp_method_conf['rfe'])
+            rfe_ser(clf, X, y, model_dir, conf['experiment'], exp_method_conf, conf=conf, fi=exp_method_conf['rfe'], nice_y=nice_y)
         else:
-            rfe_ser(clf, sss, X, y, model_dir, conf['experiment'], exp_method_conf, conf)
+            rfe_ser(clf, sss, X, y, model_dir, conf['experiment'], exp_method_conf, conf, nice_y=nice_y)
 
     print_verbose("Execution finished ...")
 
