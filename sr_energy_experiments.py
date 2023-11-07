@@ -595,6 +595,7 @@ def cv_exp(conf,
                 plt.legend(['train', 'test'], loc='upper left')
                 h_acc_fig = "DNN_Acc_{}_{}_{}.png".format(ml_meth_plot, i, fold)
                 plt.savefig(os.path.join(model_dir, h_acc_fig))
+                plt.close()
 
 
                 plt.plot(history.history['loss'])
@@ -605,6 +606,7 @@ def cv_exp(conf,
                 plt.legend(['train', 'test'], loc='upper left')
                 h_loss_fig = "DNN_Loss_{}_{}_{}.png".format(ml_meth_plot, i, fold)
                 plt.savefig(os.path.join(model_dir, h_loss_fig))
+                plt.close()
 
                 # DNN history export
                 df_history = pd.DataFrame(history.history)
@@ -631,6 +633,7 @@ def cv_exp(conf,
                 plt.ylim([-1, n_col])
                 fi_fig = "FI_{}_{}_iteration_{}_fold_{}.png".format(exp_method_conf['method'], conf['experiment'], i, fold)
                 plt.savefig(os.path.join(model_dir, fi_fig), bbox_inches='tight')
+                plt.close()
 
             # increment fold count
             fold += 1
